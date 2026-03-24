@@ -1,0 +1,65 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #1E3A5F;
+  --color-secondary: #2E86AB;
+  --color-accent: #F5F6FA;
+
+  --color-sidebar-bg: #1E3A5F;
+  --color-sidebar-hover: #2A4D7C;
+  --color-sidebar-text: #FFFFFF;
+  
+  --color-dashboard-bg: #F5F6FA;
+
+  /* greytHR Accents */
+  --color-success: #28A745;
+  --color-warning: #FFC107;
+  --color-danger: #DC3545;
+}
+
+body {
+  font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  background-color: var(--color-dashboard-bg);
+  color: #333333;
+}
+
+/* Custom Scrollbar for a polished feel */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+@keyframes reactionPop { 
+  0% { transform: scale(1); } 
+  50% { transform: scale(1.4); } 
+  100% { transform: scale(1); } 
+}
+
+.animate-reactionPop {
+  animation: reactionPop 300ms ease-in-out;
+}
+
+/* Sidebar scrollbar - thin, subtle */
+.sidebar-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.2);
+  border-radius: 2px;
+}
