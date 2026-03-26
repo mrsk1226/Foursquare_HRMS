@@ -29,6 +29,7 @@ import Welcome from './pages/Welcome';
 import Expenses from './pages/Expenses';
 import Performance from './pages/Performance';
 import Workflow from './pages/Workflow';
+import ManagerApprovals from './pages/ManagerApprovals';
 
 const pageTransition = {
   initial: { opacity: 0, y: 8 },
@@ -124,6 +125,16 @@ function AnimatedRoutes() {
               <motion.div {...pageTransition}>
                 <LeaveManagement />
               </motion.div>
+            }
+          />
+          <Route
+            path="/manager-approvals"
+            element={
+              <RoleBasedRoute allowedRoles={['manager']}>
+                <motion.div {...pageTransition}>
+                  <ManagerApprovals />
+                </motion.div>
+              </RoleBasedRoute>
             }
           />
           <Route

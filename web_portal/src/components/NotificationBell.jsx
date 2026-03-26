@@ -94,9 +94,27 @@ const NotificationBell = () => {
     setIsOpen(false);
 
     if (notif.type === 'leave_request' || notif.type === 'leave_approved' || notif.type === 'leave_rejected') {
-      navigate('/attendance', { state: { tab: 'leaves', highlightId: notif.reference_id } });
+      if (profile?.role === 'manager') {
+        navigate('/manager-approvals');
+      } else {
+        navigate('/leaves', {
+          state: {
+            tab: profile?.role === 'hr' ? 'TeamLeaves' : 'MyLeaves',
+            highlightId: notif.reference_id,
+          },
+        });
+      }
     } else if (notif.type === 'permission_request' || notif.type === 'permission_approved' || notif.type === 'permission_rejected') {
-      navigate('/attendance', { state: { tab: 'permissions', highlightId: notif.reference_id } });
+      if (profile?.role === 'manager') {
+        navigate('/manager-approvals');
+      } else {
+        navigate('/leaves', {
+          state: {
+            tab: profile?.role === 'hr' ? 'TeamPermissions' : 'MyPermissions',
+            highlightId: notif.reference_id,
+          },
+        });
+      }
     }
   };
 

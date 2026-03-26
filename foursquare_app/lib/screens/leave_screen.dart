@@ -16,6 +16,8 @@ class _LeaveScreenState extends State<LeaveScreen>
 
   String? _employeeId;
   String _fullName = '';
+  String _department = '';
+  String _workLocation = '';
   String _userRole = 'employee';
   bool _isLoading = true;
 
@@ -65,7 +67,7 @@ class _LeaveScreenState extends State<LeaveScreen>
 
       final employeeData = await supabase
           .from('employees')
-          .select('full_name')
+          .select('full_name, department, work_location')
           .eq('employee_id', empId)
           .single();
 
@@ -73,6 +75,8 @@ class _LeaveScreenState extends State<LeaveScreen>
         setState(() {
           _employeeId = empId;
           _fullName = employeeData['full_name'] ?? '';
+          _department = employeeData['department'] ?? '';
+          _workLocation = employeeData['work_location'] ?? '';
           _userRole = role;
           _isLoading = false;
         });
@@ -152,6 +156,66 @@ class _LeaveScreenState extends State<LeaveScreen>
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  Future<Map<String, dynamic>> _fetchApprovalRouting() async {
+    if (_department.isEmpty || _workLocation.isEmpty) {
+      throw 'Employee department or work location is missing';
+    }
+
+    final routing = await supabase
+        .from('approval_routing')
+        .select('level_1_approver_id, level_2_approver_id')
+        .eq('department', _department)
+        .eq('work_location', _workLocation)
+        .single();
+
+    return Map<String, dynamic>.from(routing);
+  }
+
+  int _approvalLevel(dynamic item) {
+    final value = item['current_approval_level'];
+    if (value is int) return value;
+    return int.tryParse(value?.toString() ?? '1') ?? 1;
+  }
+
+  bool _isDirectHrFlow(dynamic item) =>
+      (item['level_1_approver_id'] ?? '') == 'FSQ002';
+
+  String _approvalStatusLabel(dynamic item) {
+    final status = (item['status'] ?? 'pending').toString().toLowerCase();
+    if (status == 'approved') return 'Approved ✅';
+    if (status == 'rejected') return 'Rejected';
+    if (_approvalLevel(item) >= 2 && !_isDirectHrFlow(item)) {
+      return 'Manager Approved | HR Pending';
+    }
+    return _isDirectHrFlow(item) ? 'Waiting for HR' : 'Waiting for Manager';
+  }
+
+  Color _approvalStatusColor(dynamic item) {
+    final status = (item['status'] ?? 'pending').toString().toLowerCase();
+    if (status == 'approved') return Colors.green;
+    if (status == 'rejected') return Colors.red;
+    if (_approvalLevel(item) >= 2 && !_isDirectHrFlow(item)) {
+      return Colors.blue;
+    }
+    return Colors.amber;
+  }
+
+  String _levelOneStatus(dynamic item) {
+    final status = (item['status'] ?? 'pending').toString().toLowerCase();
+    if (status == 'rejected') return 'rejected';
+    if (item['level_1_approved_at'] != null || _approvalLevel(item) >= 2) {
+      return 'approved';
+    }
+    return 'pending';
+  }
+
+  String _finalApprovalStatus(dynamic item) {
+    final status = (item['status'] ?? 'pending').toString().toLowerCase();
+    if (status == 'approved') return 'approved';
+    if (status == 'rejected') return 'rejected';
+    return _approvalLevel(item) >= 2 ? 'pending' : 'waiting';
   }
 
   // ──────────────────────────────────────────────────────────
@@ -253,8 +317,8 @@ class _LeaveScreenState extends State<LeaveScreen>
   Widget _buildLeaveCard(dynamic leave) {
     final type = leave['leave_type'] ?? 'Casual Leave';
     final status = (leave['status'] ?? 'pending').toLowerCase();
-    final hrStatus = (leave['hr_status'] ?? 'pending').toLowerCase();
-    final mdStatus = (leave['md_status'] ?? 'waiting').toLowerCase();
+    final levelOneStatus = _levelOneStatus(leave);
+    final finalStatus = _finalApprovalStatus(leave);
 
     DateTime start =
         DateTime.tryParse(leave['start_date'] ?? '') ?? DateTime.now();
@@ -296,7 +360,7 @@ class _LeaveScreenState extends State<LeaveScreen>
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   _typeBadge(type, badgeColor),
-                  _overallStatusBadge(status),
+                  _overallStatusBadge(leave),
                 ],
               ),
               const SizedBox(height: 12),
@@ -326,11 +390,13 @@ class _LeaveScreenState extends State<LeaveScreen>
               const SizedBox(height: 12),
 
               // ── 2-Stage progress bar ──
-              _buildStageProgress(hrStatus, mdStatus, status),
+              _buildStageProgress(
+                  levelOneStatus, finalStatus, _isDirectHrFlow(leave)),
 
               // ── Rejection reason ──
               if ((status == 'rejected') &&
-                  (leave['hr_remarks'] != null ||
+                  (leave['level_1_remarks'] != null ||
+                      leave['hr_remarks'] != null ||
                       leave['md_remarks'] != null)) ...[
                 const SizedBox(height: 10),
                 Container(
@@ -345,7 +411,7 @@ class _LeaveScreenState extends State<LeaveScreen>
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          "Rejected: ${leave['md_remarks'] ?? leave['hr_remarks']}",
+                          "Rejected: ${leave['level_1_remarks'] ?? leave['md_remarks'] ?? leave['hr_remarks']}",
                           style: const TextStyle(
                               color: Colors.red,
                               fontWeight: FontWeight.w600,
@@ -366,10 +432,9 @@ class _LeaveScreenState extends State<LeaveScreen>
   // ── 2-Stage progress indicator ──────────────────────────
 
   Widget _buildStageProgress(
-      String hrStatus, String mdStatus, String overallStatus) {
-    final stage1Done = hrStatus == 'approved';
-    final stage2Done = mdStatus == 'approved';
-    final rejected = overallStatus == 'rejected';
+      String levelOneStatus, String finalStatus, bool isDirectHrFlow) {
+    final stage1Done = levelOneStatus == 'approved';
+    final stage2Done = finalStatus == 'approved';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -382,10 +447,10 @@ class _LeaveScreenState extends State<LeaveScreen>
         const SizedBox(height: 8),
         Row(
           children: [
-            // Stage 1 - HR
+            // Stage 1 - Manager / HR
             _stageChip(
-              label: "HR Approval",
-              status: rejected && hrStatus == 'rejected'
+              label: isDirectHrFlow ? "HR Approval" : "Manager Approval",
+              status: levelOneStatus == 'rejected'
                   ? 'rejected'
                   : stage1Done
                       ? 'approved'
@@ -399,10 +464,10 @@ class _LeaveScreenState extends State<LeaveScreen>
                 color: stage1Done ? Colors.green : Colors.grey[300],
               ),
             ),
-            // Stage 2 - MD
+            // Stage 2 - HR Final
             _stageChip(
-              label: "MD Approval",
-              status: rejected && mdStatus == 'rejected'
+              label: "Final Approval",
+              status: finalStatus == 'rejected'
                   ? 'rejected'
                   : stage2Done
                       ? 'approved'
@@ -477,34 +542,17 @@ class _LeaveScreenState extends State<LeaveScreen>
     );
   }
 
-  Widget _overallStatusBadge(String status) {
-    Color color;
-    IconData icon;
-    String label;
-
-    switch (status) {
-      case 'approved':
-        color = Colors.green;
-        icon = Icons.check_circle_outline;
-        label = 'Fully Approved';
-        break;
-      case 'rejected':
-        color = Colors.red;
-        icon = Icons.cancel_outlined;
-        label = 'Rejected';
-        break;
-      case 'hr_approved':
-        color = Colors.blue;
-        icon = Icons.thumb_up_outlined;
-        label = 'HR Approved | MD Pending';
-        break;
-      case 'pending':
-      default:
-        color = Colors.amber;
-        icon = Icons.hourglass_empty;
-        label = 'Waiting for HR';
-        break;
-    }
+  Widget _overallStatusBadge(dynamic item) {
+    final status = (item['status'] ?? 'pending').toString().toLowerCase();
+    final color = _approvalStatusColor(item);
+    final label = _approvalStatusLabel(item);
+    final icon = status == 'approved'
+        ? Icons.check_circle_outline
+        : status == 'rejected'
+            ? Icons.cancel_outlined
+            : _approvalLevel(item) >= 2 && !_isDirectHrFlow(item)
+                ? Icons.thumb_up_outlined
+                : Icons.hourglass_empty;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -635,8 +683,8 @@ class _LeaveScreenState extends State<LeaveScreen>
 
   Widget _buildPermissionCard(dynamic perm) {
     final status = (perm['status'] ?? 'pending').toLowerCase();
-    final hrStatus = (perm['hr_status'] ?? 'pending').toLowerCase();
-    final mdStatus = (perm['md_status'] ?? 'waiting').toLowerCase();
+    final levelOneStatus = _levelOneStatus(perm);
+    final finalStatus = _finalApprovalStatus(perm);
     final date =
         DateTime.tryParse(perm['date'] ?? '') ?? DateTime.now();
 
@@ -671,7 +719,7 @@ class _LeaveScreenState extends State<LeaveScreen>
                   Text(DateFormat('dd MMM yyyy').format(date),
                       style: const TextStyle(
                           fontWeight: FontWeight.bold, color: _navy)),
-                  _overallStatusBadge(status),
+                  _overallStatusBadge(perm),
                 ],
               ),
               const SizedBox(height: 10),
@@ -692,9 +740,11 @@ class _LeaveScreenState extends State<LeaveScreen>
               Text(perm['reason'] ?? 'No reason',
                   style: TextStyle(color: Colors.grey[600], fontSize: 13)),
               const SizedBox(height: 12),
-              _buildStageProgress(hrStatus, mdStatus, status),
+              _buildStageProgress(
+                  levelOneStatus, finalStatus, _isDirectHrFlow(perm)),
               if (status == 'rejected' &&
-                  (perm['hr_remarks'] != null ||
+                  (perm['level_1_remarks'] != null ||
+                      perm['hr_remarks'] != null ||
                       perm['md_remarks'] != null)) ...[
                 const SizedBox(height: 10),
                 Container(
@@ -703,7 +753,7 @@ class _LeaveScreenState extends State<LeaveScreen>
                       color: Colors.red[50],
                       borderRadius: BorderRadius.circular(8)),
                   child: Text(
-                    "Rejected: ${perm['md_remarks'] ?? perm['hr_remarks']}",
+                    "Rejected: ${perm['level_1_remarks'] ?? perm['md_remarks'] ?? perm['hr_remarks']}",
                     style: const TextStyle(
                         color: Colors.red,
                         fontWeight: FontWeight.w600,
@@ -989,12 +1039,10 @@ class _LeaveScreenState extends State<LeaveScreen>
 
     try {
       final totalDays = endDate.difference(startDate).inDays + 1;
-      final isHR = _userRole.toLowerCase() == 'hr';
+      final routing = await _fetchApprovalRouting();
+      final levelOneApproverId = routing['level_1_approver_id'];
 
-      // HR apply → directly to MD (skip HR stage)
-      final hrStatus = isHR ? 'approved' : 'pending';
-      final mdStatus = isHR ? 'pending' : 'waiting';
-      final overallStatus = isHR ? 'hr_approved' : 'pending';
+
       final appliedByRole = _userRole.toLowerCase();
 
       final res = await supabase.from('leave_requests').insert({
@@ -1003,22 +1051,23 @@ class _LeaveScreenState extends State<LeaveScreen>
         'start_date': startDate.toIso8601String().split('T')[0],
         'end_date': endDate.toIso8601String().split('T')[0],
         'reason': reason,
-        'status': overallStatus,
-        'hr_status': hrStatus,
-        'md_status': mdStatus,
+        'status': 'pending',
+        'hr_status': 'pending',
         'applied_by_role': appliedByRole,
         'total_days': totalDays,
+        'current_approval_level': 1,
+        'level_1_approver_id': levelOneApproverId,
       }).select().single();
 
       // Notification routing
-      final recipientId = isHR ? 'FSQ000' : 'FSQ002';
-      final notifTitle =
-          isHR ? '🔔 HR Leave - MD Approval Needed' : '📋 New Leave Request';
-      final notifMessage = isHR
-          ? 'HR Manager applied for $selectedLeaveType. Needs your final approval.'
-          : '$_fullName applied for $selectedLeaveType from '
-              '${DateFormat('dd MMM').format(startDate)} to '
-              '${DateFormat('dd MMM').format(endDate)} ($totalDays days)';
+      final recipientId = levelOneApproverId;
+      final notifTitle = levelOneApproverId == 'FSQ002'
+          ? 'New Leave Request for HR Approval'
+          : 'New Leave Request for Manager Approval';
+      final notifMessage = '$_fullName applied for $selectedLeaveType from '
+          '${DateFormat('dd MMM').format(startDate)} to '
+          '${DateFormat('dd MMM').format(endDate)} ($totalDays days)';
+
 
       await supabase.from('notifications').insert({
         'recipient_employee_id': recipientId,
@@ -1035,9 +1084,9 @@ class _LeaveScreenState extends State<LeaveScreen>
         Navigator.pop(context);
         _loadLeaveRequests();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(isHR
-              ? '✅ Leave applied! Waiting for MD final approval.'
-              : '✅ Leave applied! Waiting for HR approval.'),
+          content: Text(levelOneApproverId == 'FSQ002'
+              ? '✅ Leave applied! Waiting for HR approval.'
+              : '✅ Leave applied! Waiting for manager approval.'),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 3),
         ));
@@ -1355,16 +1404,16 @@ class _LeaveScreenState extends State<LeaveScreen>
     try {
       final finalReason =
           selectedReason == 'Others' ? othersText : selectedReason;
-      final isHR = _userRole.toLowerCase() == 'hr';
-
-      final hrStatus = isHR ? 'approved' : 'pending';
-      final mdStatus = isHR ? 'pending' : 'waiting';
-      final overallStatus = isHR ? 'hr_approved' : 'pending';
+      final routing = await _fetchApprovalRouting();
+      final levelOneApproverId = routing['level_1_approver_id'];
 
       final startTimeStr =
           '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}:00';
       final endTimeStr =
           '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}:00';
+
+
+
 
       final res = await supabase.from('permissions').insert({
         'employee_id': _employeeId,
@@ -1374,23 +1423,23 @@ class _LeaveScreenState extends State<LeaveScreen>
         'duration_minutes': duration,
         'reason': finalReason,
         'remarks': remarks,
-        'status': overallStatus,
-        'hr_status': hrStatus,
-        'md_status': mdStatus,
+        'status': 'pending',
+        'hr_status': 'pending',
         'applied_by_role': _userRole.toLowerCase(),
+        'current_approval_level': 1,
+        'level_1_approver_id': levelOneApproverId,
       }).select().single();
-
-      final recipientId = isHR ? 'FSQ000' : 'FSQ002';
+      final recipientId = levelOneApproverId;
       await supabase.from('notifications').insert({
         'recipient_employee_id': recipientId,
         'sender_employee_id': _employeeId,
         'type': 'permission_request',
-        'title': isHR
-            ? '🔔 HR Permission - MD Approval Needed'
-            : '📋 New Permission Request',
-        'message': isHR
-            ? 'HR Manager requested permission on ${DateFormat('dd MMM').format(permDate)} for $finalReason. Needs your approval.'
-            : '$_fullName requested permission on ${DateFormat('dd MMM').format(permDate)} for $finalReason ($duration min)',
+        'title': levelOneApproverId == 'FSQ002'
+            ? 'New Permission Request for HR Approval'
+            : 'New Permission Request for Manager Approval',
+        'message': '$_fullName requested permission on ${DateFormat('dd MMM').format(permDate)} for $finalReason ($duration min)',
+
+
         'reference_type': 'permission_request',
         'reference_id': res['id'].toString(),
         'is_read': false,
@@ -1400,9 +1449,9 @@ class _LeaveScreenState extends State<LeaveScreen>
         Navigator.pop(context);
         _loadPermissions();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(isHR
-              ? '✅ Permission applied! Waiting for MD approval.'
-              : '✅ Permission applied! Waiting for HR approval.'),
+          content: Text(levelOneApproverId == 'FSQ002'
+              ? '✅ Permission applied! Waiting for HR approval.'
+              : '✅ Permission applied! Waiting for manager approval.'),
           backgroundColor: Colors.green,
           duration: const Duration(seconds: 3),
         ));
@@ -1519,20 +1568,21 @@ class _LeaveScreenState extends State<LeaveScreen>
 
   void _showLeaveDetails(BuildContext context, dynamic leave) {
     final status = (leave['status'] ?? 'pending').toLowerCase();
-    final hrStatus = (leave['hr_status'] ?? 'pending').toLowerCase();
-    final mdStatus = (leave['md_status'] ?? 'waiting').toLowerCase();
-    final hrRemarks = leave['hr_remarks'];
-    final mdRemarks = leave['md_remarks'];
+    final levelOneStatus = _levelOneStatus(leave);
+    final finalStatus = _finalApprovalStatus(leave);
+    final levelOneRemarks = leave['level_1_remarks'] ?? leave['hr_remarks'];
 
     String overallMsg = "";
     if (status == 'rejected') {
       overallMsg = "Leave rejected. See remarks above.";
-    } else if (mdStatus == 'approved') {
+    } else if (finalStatus == 'approved') {
       overallMsg = "Your leave is fully approved!";
-    } else if (hrStatus == 'approved' && mdStatus == 'pending') {
-      overallMsg = "HR Approved. Waiting for MD final approval.";
+    } else if (levelOneStatus == 'approved' && finalStatus == 'pending') {
+      overallMsg = "Manager approved. Waiting for HR final approval.";
     } else {
-      overallMsg = "Waiting for HR approval";
+      overallMsg = _isDirectHrFlow(leave)
+          ? "Waiting for HR approval"
+          : "Waiting for manager approval";
     }
 
     _showDetailsBottomSheet(
@@ -1562,9 +1612,14 @@ class _LeaveScreenState extends State<LeaveScreen>
           Text(leave['reason'] ?? 'No reason provided',
               style: const TextStyle(fontSize: 15)),
           const Divider(height: 32),
-          _detailRow("Stage 1 — HR Approval", hrStatus, hrRemarks),
+          _detailRow(
+              _isDirectHrFlow(leave)
+                  ? "Stage 1 — HR Approval"
+                  : "Stage 1 — Manager Approval",
+              levelOneStatus,
+              levelOneRemarks),
           const SizedBox(height: 16),
-          _detailRow("Stage 2 — MD Final Approval", mdStatus, mdRemarks),
+          _detailRow("Stage 2 — Final Approval", finalStatus, null),
           const SizedBox(height: 24),
           Container(
             padding: const EdgeInsets.all(16),
@@ -1588,20 +1643,21 @@ class _LeaveScreenState extends State<LeaveScreen>
 
   void _showPermissionDetails(BuildContext context, dynamic perm) {
     final status = (perm['status'] ?? 'pending').toLowerCase();
-    final hrStatus = (perm['hr_status'] ?? 'pending').toLowerCase();
-    final mdStatus = (perm['md_status'] ?? 'waiting').toLowerCase();
-    final hrRemarks = perm['hr_remarks'];
-    final mdRemarks = perm['md_remarks'];
+    final levelOneStatus = _levelOneStatus(perm);
+    final finalStatus = _finalApprovalStatus(perm);
+    final levelOneRemarks = perm['level_1_remarks'] ?? perm['hr_remarks'];
 
     String overallMsg = "";
     if (status == 'rejected') {
       overallMsg = "Permission rejected. See remarks above.";
-    } else if (mdStatus == 'approved') {
+    } else if (finalStatus == 'approved') {
       overallMsg = "Your permission is fully approved!";
-    } else if (hrStatus == 'approved' && mdStatus == 'pending') {
-      overallMsg = "HR Approved. Waiting for MD final approval.";
+    } else if (levelOneStatus == 'approved' && finalStatus == 'pending') {
+      overallMsg = "Manager approved. Waiting for HR final approval.";
     } else {
-      overallMsg = "Waiting for HR approval";
+      overallMsg = _isDirectHrFlow(perm)
+          ? "Waiting for HR approval"
+          : "Waiting for manager approval";
     }
 
     _showDetailsBottomSheet(
@@ -1638,9 +1694,14 @@ class _LeaveScreenState extends State<LeaveScreen>
                 style: TextStyle(color: Colors.grey[600], fontSize: 13)),
           ],
           const Divider(height: 32),
-          _detailRow("Stage 1 — HR Approval", hrStatus, hrRemarks),
+          _detailRow(
+              _isDirectHrFlow(perm)
+                  ? "Stage 1 — HR Approval"
+                  : "Stage 1 — Manager Approval",
+              levelOneStatus,
+              levelOneRemarks),
           const SizedBox(height: 16),
-          _detailRow("Stage 2 — MD Final Approval", mdStatus, mdRemarks),
+          _detailRow("Stage 2 — Final Approval", finalStatus, null),
           const SizedBox(height: 24),
           Container(
             padding: const EdgeInsets.all(16),
