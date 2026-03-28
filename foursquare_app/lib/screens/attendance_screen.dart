@@ -262,7 +262,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       ),
       appBar: AppBar(
         title: const Text('Attendance', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xFF1B2E4B),
+        backgroundColor: const Color(0xFF0F172A),
+        iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
       ),
       body: SingleChildScrollView(
@@ -417,34 +418,32 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
           Color cellColor = Colors.transparent;
           Color textColor = Colors.black87;
+          Color dotColor = Colors.transparent;
           BoxBorder? border;
 
-          if (log != null) {
-            cellColor = const Color(0xFFE8F5E9); // present
-            textColor = Colors.green.shade800;
-          } else if (leave != null) {
-            cellColor = const Color(0xFFFFF3E0); // leave
-            textColor = Colors.orange.shade800;
-          } else if (holiday != null) {
-            cellColor = const Color(0xFFE3F2FD); // holiday
-            textColor = Colors.blue.shade800;
-          } else if (isSunday) {
-            cellColor = const Color(0xFFF5F5F5); // sunday
-            textColor = Colors.black38;
-          } else if (!isFuture && !isToday) {
-            cellColor = const Color(0xFFFFEBEE); // absent
-            textColor = Colors.red.shade800;
+          if (isToday) {
+            border = Border.all(color: Colors.blue.shade700, width: 2);
+            textColor = Colors.blue.shade700;
           }
 
-          if (isToday) {
-            border = Border.all(color: const Color(0xFF1B2E4B), width: 2);
+          if (log != null) {
+            dotColor = log['check_out'] != null ? Colors.green : Colors.orange; // present or partial
+          } else if (leave != null) {
+            dotColor = Colors.orange; // leave
+          } else if (holiday != null) {
+            dotColor = Colors.blue; // holiday
+          } else if (isSunday) {
+            textColor = Colors.black38;
+            dotColor = Colors.grey; // weekend
+          } else if (!isFuture && !isToday) {
+            dotColor = Colors.red; // absent
           }
 
           return GestureDetector(
             onTap: () {
               if (log != null) {
                  _showLogDetails(log);
-              } else if (!isFuture) {
+              } else if (!isFuture && !isSunday && leave == null && holiday == null && !isToday) {
                  _showAbsentDetails(dateStr);
               }
             },
@@ -459,14 +458,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                    Text("$day", style: TextStyle(fontWeight: isToday ? FontWeight.bold : FontWeight.w500, color: textColor)),
-                   if (log != null) 
-                     Container(width: 4, height: 4, decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle)),
-                   if (leave != null && log == null)
-                     Container(width: 4, height: 4, decoration: const BoxDecoration(color: Colors.orange, shape: BoxShape.circle)),
-                   if (holiday != null && log == null)
-                     Container(width: 4, height: 4, decoration: const BoxDecoration(color: Colors.blue, shape: BoxShape.circle)),
-                   if (log == null && leave == null && holiday == null && !isSunday && !isFuture && !isToday)
-                     Container(width: 4, height: 4, decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle)),
+                   if (dotColor != Colors.transparent) ...[
+                     const SizedBox(height: 4),
+                     Container(width: 6, height: 6, decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
+                   ]
                 ],
               ),
             ),
@@ -514,8 +509,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
-                child: Text("Present", style: TextStyle(color: Colors.green.shade700, fontWeight: FontWeight.bold, fontSize: 12)),
+                decoration: BoxDecoration(color: cOut != null ? Colors.green.shade50 : Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
+                child: Text(cOut != null ? "Present" : "Partial", style: TextStyle(color: cOut != null ? Colors.green.shade700 : Colors.orange.shade700, fontWeight: FontWeight.bold, fontSize: 12)),
               ),
             ],
           ),

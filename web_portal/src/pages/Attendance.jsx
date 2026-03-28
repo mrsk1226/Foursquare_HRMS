@@ -25,6 +25,46 @@ export default function Attendance() {
   const [sundays, setSundays] = useState([]);
   const [selectedRecord, setSelectedRecord] = useState(null);
 
+  const fetchAttendance = async () => {
+    const firstDay = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
+    const lastDay = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
+    let query = supabase.from('attendance_logs').select('*, employees(full_name)').gte('date', firstDay).lte('date', lastDay).order('date', { ascending: false });
+    if (!isAdmin) query = query.eq('employee_id', profile.employee_id);
+    const { data } = await query;
+    setAttendance(data || []);
+  };
+
+  const fetchLeaves = async () => {
+    let query = supabase.from('leave_requests').select('*, employees(full_name)').order('created_at', { ascending: false });
+    if (!isAdmin) query = query.eq('employee_id', profile.employee_id);
+    const { data } = await query;
+    setLeaves(data || []);
+  };
+
+  const fetchPermissions = async () => {
+    let query = supabase.from('permissions').select('*, employees(full_name)').order('created_at', { ascending: false });
+    if (!isAdmin) query = query.eq('employee_id', profile.employee_id);
+    const { data } = await query;
+    setPermissions(data || []);
+  };
+
+  const fetchSundays = async () => {
+    const { data } = await supabase.from('sunday_punch_requests').select('*, employees(full_name)').order('created_at', { ascending: false });
+    setSundays(data || []);
+  };
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      if (tab === 'attendance') await fetchAttendance();
+      if (tab === 'leaves') await fetchLeaves();
+      if (tab === 'permissions') await fetchPermissions();
+      if (tab === 'sundays') await fetchSundays();
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (location.state?.tab) setTab(location.state.tab);
     if (location.state?.highlightId) setHighlightId(String(location.state.highlightId));
@@ -53,46 +93,6 @@ export default function Attendance() {
     const timeoutId = window.setTimeout(() => setHighlightId(null), 4000);
     return () => window.clearTimeout(timeoutId);
   }, [highlightId, tab, leaves]);
-
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      if (tab === 'attendance') await fetchAttendance();
-      if (tab === 'leaves') await fetchLeaves();
-      if (tab === 'permissions') await fetchPermissions();
-      if (tab === 'sundays') await fetchSundays();
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchAttendance = async () => {
-    const firstDay = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
-    const lastDay = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
-    let query = supabase.from('attendance_logs').select('*, employees(full_name)').gte('date', firstDay).lte('date', lastDay).order('date', { ascending: false });
-    if (!isAdmin) query = query.eq('employee_id', profile.employee_id);
-    const { data } = await query;
-    setAttendance(data || []);
-  };
-
-  const fetchLeaves = async () => {
-    let query = supabase.from('leave_requests').select('*, employees(full_name, department)').order('created_at', { ascending: false });
-    if (!isAdmin) query = query.eq('employee_id', profile.employee_id);
-    const { data } = await query;
-    setLeaves(data || []);
-  };
-
-  const fetchPermissions = async () => {
-    let query = supabase.from('permissions').select('*, employees(full_name, department)').order('created_at', { ascending: false });
-    if (!isAdmin) query = query.eq('employee_id', profile.employee_id);
-    const { data } = await query;
-    setPermissions(data || []);
-  };
-
-  const fetchSundays = async () => {
-    const { data } = await supabase.from('sunday_punch_requests').select('*, employees(full_name)').order('created_at', { ascending: false });
-    setSundays(data || []);
-  };
 
   const tabs = [
     { id: 'attendance', label: 'Attendance', icon: <Activity size={14} /> },

@@ -84,7 +84,8 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
         onItemSelected: (i) => widget.switchTab?.call(i),
       ),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1B2E4B),
+        backgroundColor: const Color(0xFF0F172A),
+        iconTheme: const IconThemeData(color: Colors.white),
         title: const Text("My Profile", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         actions: [
           IconButton(onPressed: () => _handleLogout(context), icon: const Icon(Icons.logout, color: Colors.white)),

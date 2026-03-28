@@ -1,4 +1,4 @@
-val kotlinVersion = "2.2.20"
+val kotlinVersion = "1.9.22"
 val androidMapsUtilsVersion = "4.1.0"
 val playServicesMapsVersion = "20.0.0"
 
@@ -8,7 +8,7 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.22")
     }
 }
 

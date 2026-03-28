@@ -9,6 +9,7 @@ import {
 import { AnimatePresence, motion, MotionConfig } from 'framer-motion';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute, AdminRoute, RoleBasedRoute } from './components/Layout';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Pages
 import Login from './pages/Login';
@@ -46,63 +47,63 @@ function AnimatedRoutes() {
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
         {/* Public Routes */}
-        <Route path="/login" element={<motion.div {...pageTransition}><Login /></motion.div>} />
-        <Route path="/access-denied" element={<motion.div {...pageTransition}><AccessDenied /></motion.div>} />
-        <Route path="/change-password" element={<motion.div {...pageTransition}><ChangePassword /></motion.div>} />
-        <Route path="/reset-password" element={<motion.div {...pageTransition}><ChangePassword /></motion.div>} />
+        <Route path="/login" element={<ErrorBoundary><motion.div {...pageTransition}><Login /></motion.div></ErrorBoundary>} />
+        <Route path="/access-denied" element={<ErrorBoundary><motion.div {...pageTransition}><AccessDenied /></motion.div></ErrorBoundary>} />
+        <Route path="/change-password" element={<ErrorBoundary><motion.div {...pageTransition}><ChangePassword /></motion.div></ErrorBoundary>} />
+        <Route path="/reset-password" element={<ErrorBoundary><motion.div {...pageTransition}><ChangePassword /></motion.div></ErrorBoundary>} />
 
         {/* Protected Routes */}
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<motion.div {...pageTransition}><Dashboard /></motion.div>} />
-          <Route path="/welcome" element={<motion.div {...pageTransition}><Welcome /></motion.div>} />
+          <Route path="/dashboard" element={<ErrorBoundary><motion.div {...pageTransition}><Dashboard /></motion.div></ErrorBoundary>} />
+          <Route path="/welcome" element={<ErrorBoundary><motion.div {...pageTransition}><Welcome /></motion.div></ErrorBoundary>} />
           
-          <Route path="/announcements" element={<motion.div {...pageTransition}><Announcements /></motion.div>} />
-          <Route path="/attendance" element={<motion.div {...pageTransition}><Attendance /></motion.div>} />
-          <Route path="/leaves" element={<motion.div {...pageTransition}><LeaveManagement /></motion.div>} />
+          <Route path="/announcements" element={<ErrorBoundary><motion.div {...pageTransition}><Announcements /></motion.div></ErrorBoundary>} />
+          <Route path="/attendance" element={<ErrorBoundary><motion.div {...pageTransition}><Attendance /></motion.div></ErrorBoundary>} />
+          <Route path="/leaves" element={<ErrorBoundary><motion.div {...pageTransition}><LeaveManagement /></motion.div></ErrorBoundary>} />
           
           <Route path="/manager-approvals" element={
             <RoleBasedRoute allowedRoles={['manager']}>
-              <motion.div {...pageTransition}><ManagerApprovals /></motion.div>
+              <ErrorBoundary><motion.div {...pageTransition}><ManagerApprovals /></motion.div></ErrorBoundary>
             </RoleBasedRoute>
           } />
           
-          <Route path="/payroll" element={<motion.div {...pageTransition}><Payroll /></motion.div>} />
-          <Route path="/expenses" element={<motion.div {...pageTransition}><Expenses /></motion.div>} />
-          <Route path="/profile" element={<motion.div {...pageTransition}><MyProfile /></motion.div>} />
-          <Route path="/hr-contact" element={<motion.div {...pageTransition}><HRContact /></motion.div>} />
+          <Route path="/payroll" element={<ErrorBoundary><motion.div {...pageTransition}><Payroll /></motion.div></ErrorBoundary>} />
+          <Route path="/expenses" element={<ErrorBoundary><motion.div {...pageTransition}><Expenses /></motion.div></ErrorBoundary>} />
+          <Route path="/profile" element={<ErrorBoundary><motion.div {...pageTransition}><MyProfile /></motion.div></ErrorBoundary>} />
+          <Route path="/hr-contact" element={<ErrorBoundary><motion.div {...pageTransition}><HRContact /></motion.div></ErrorBoundary>} />
 
           {/* HR & Admin Only Routes */}
           <Route path="/employees" element={
             <RoleBasedRoute allowedRoles={['admin', 'md', 'hr']}>
-              <motion.div {...pageTransition}><Employees /></motion.div>
+              <ErrorBoundary><motion.div {...pageTransition}><Employees /></motion.div></ErrorBoundary>
             </RoleBasedRoute>
           } />
           <Route path="/performance" element={
             <RoleBasedRoute allowedRoles={['admin', 'md', 'hr']}>
-              <motion.div {...pageTransition}><Performance /></motion.div>
+              <ErrorBoundary><motion.div {...pageTransition}><Performance /></motion.div></ErrorBoundary>
             </RoleBasedRoute>
           } />
           <Route path="/onboarding" element={
             <RoleBasedRoute allowedRoles={['admin', 'md', 'hr']}>
-              <motion.div {...pageTransition}><Onboarding /></motion.div>
+              <ErrorBoundary><motion.div {...pageTransition}><Onboarding /></motion.div></ErrorBoundary>
             </RoleBasedRoute>
           } />
           <Route path="/reports" element={
             <RoleBasedRoute allowedRoles={['admin', 'md', 'hr']}>
-              <motion.div {...pageTransition}><Reports /></motion.div>
+              <ErrorBoundary><motion.div {...pageTransition}><Reports /></motion.div></ErrorBoundary>
             </RoleBasedRoute>
           } />
           <Route path="/settings" element={
             <RoleBasedRoute allowedRoles={['admin', 'md', 'hr']}>
-              <motion.div {...pageTransition}><Settings /></motion.div>
+              <ErrorBoundary><motion.div {...pageTransition}><Settings /></motion.div></ErrorBoundary>
             </RoleBasedRoute>
           } />
 
           {/* Admin Only Route */}
           <Route path="/workflow" element={
             <AdminRoute>
-              <motion.div {...pageTransition}><Workflow /></motion.div>
+              <ErrorBoundary><motion.div {...pageTransition}><Workflow /></motion.div></ErrorBoundary>
             </AdminRoute>
           } />
         </Route>

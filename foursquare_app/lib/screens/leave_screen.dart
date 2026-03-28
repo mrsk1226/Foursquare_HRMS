@@ -191,7 +191,8 @@ class _LeaveScreenState extends State<LeaveScreen>
       title: const Text('Leave & Permissions',
           style: TextStyle(
               color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
-      backgroundColor: _navy,
+      backgroundColor: const Color(0xFF0F172A),
+      iconTheme: const IconThemeData(color: Colors.white),
       centerTitle: true,
       bottom: withTabs
           ? TabBar(

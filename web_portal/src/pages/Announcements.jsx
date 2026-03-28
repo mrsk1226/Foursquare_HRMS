@@ -3,13 +3,14 @@ import { supabase } from '../lib/supabase_client';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
+import { motion, AnimatePresence } from 'framer-motion';
+import classNames from 'classnames';
 import { 
   Megaphone, Plus, Pin, Clock, Trash2, X, Users, Image as ImageIcon, Send, MessageSquare, Heart, Edit, 
   ThumbsUp, User, Reply, Loader2, SmilePlus, ArrowLeft
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Breadcrumb from '../components/Breadcrumb';
-
 
 const REACTION_TYPES = [
   { type: 'like', emoji: '👍', label: 'Like', color: 'text-blue-500' },
@@ -24,14 +25,12 @@ const Announcements = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { profile } = useAuth();
-
   const isAdmin = profile?.role === 'admin' || profile?.role === 'hr';
   
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeFilter, setActiveFilter] = useState('All');
-
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -47,7 +46,6 @@ const Announcements = () => {
     target_role: 'All',
     is_pinned: false
   });
-
   // UI States
   const [commentInputs, setCommentInputs] = useState({});
   const [showComments, setShowComments] = useState({});
@@ -55,30 +53,7 @@ const Announcements = () => {
   const [hoveredReactionPost, setHoveredReactionPost] = useState(null);
   const [isReactionPillVisible, setIsReactionPillVisible] = useState(false);
 
-  useEffect(() => {
-    fetchAnnouncements();
-
-    const channel = supabase
-      .channel('announcements-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, async (payload) => {
-        if (payload.eventType === 'INSERT') {
-          const { data: profileData } = await supabase.from('profiles').select('id, full_name, avatar_url, role').eq('id', payload.new.created_by).single();
-          setAnnouncements(prev => [{ ...payload.new, profiles: profileData || { full_name: 'Company Admin', role: 'System' }, announcement_reactions: [], announcement_comments: [] }, ...prev]);
-        } else if (payload.eventType === 'UPDATE') {
-          setAnnouncements(prev => prev.map(a => a.id === payload.new.id ? { ...a, ...payload.new } : a));
-        } else if (payload.eventType === 'DELETE') {
-          setAnnouncements(prev => prev.filter(a => a.id !== payload.old.id));
-        }
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_reactions' }, () => fetchAnnouncements())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_comments' }, () => fetchAnnouncements())
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [profile]);
-
+  // ✅ MOVED ABOVE useEffect - Hoisting fix
   const fetchAnnouncements = async () => {
     try {
       console.log("fetching announcements...");
@@ -120,7 +95,6 @@ const Announcements = () => {
       
       const reactions = reactionsRes.data || [];
       const comments = commentsRes.data || [];
-
       // Step 4: merge
       const enriched = posts.map(post => ({
         ...post,
@@ -139,12 +113,11 @@ const Announcements = () => {
     }
   };
 
-
+  // ✅ MOVED ABOVE useEffect - Hoisting fix
   const handleCreateOrUpdate = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
     let imageUrl = null;
-
     if (selectedFile) {
       const fileExt = selectedFile.name.split('.').pop();
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
@@ -154,7 +127,6 @@ const Announcements = () => {
         imageUrl = data.publicUrl;
       }
     }
-
     try {
       const payload = {
         title: formData.title,
@@ -187,12 +159,14 @@ const Announcements = () => {
     }
   };
 
+  // ✅ MOVED ABOVE useEffect - Hoisting fix
   const resetForm = () => {
     setFormData({ title: '', content: '', post_type: 'Announcement', priority: 'Low', target_role: 'All', is_pinned: false });
     setSelectedFile(null);
     setIsEditing(null);
   };
 
+  // ✅ MOVED ABOVE useEffect - Hoisting fix
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this post?")) return;
     try {
@@ -204,7 +178,7 @@ const Announcements = () => {
     }
   };
 
-  // OPTIMISTIC REACTION HANDLER
+  // ✅ MOVED ABOVE useEffect - Hoisting fix
   const handleReact = async (announcementId, type) => {
     if (!profile) return;
     
@@ -232,7 +206,6 @@ const Announcements = () => {
       return { ...ann, announcement_reactions: reactions };
     });
     setAnnouncements(updated);
-
     try {
       const existing = prevAnnouncements.find(a => a.id === announcementId)?.announcement_reactions?.find(r => r.employee_id === profile.employee_id);
       if (existing && existing.reaction_type === type) {
@@ -251,10 +224,10 @@ const Announcements = () => {
     }
   };
 
+  // ✅ MOVED ABOVE useEffect - Hoisting fix
   const handlePostComment = async (announcementId, parentId = null) => {
     const content = (parentId ? replyInputs[parentId] : commentInputs[announcementId])?.trim();
     if (!content) return;
-
     try {
       const { data, error } = await supabase.from('announcement_comments').insert({
         announcement_id: announcementId,
@@ -264,7 +237,6 @@ const Announcements = () => {
         parent_id: parentId
       }).select();
       if (error) throw error;
-
       // Notify parent author if reply
       if (parentId) {
         const parentComment = announcements.find(a => a.id === announcementId)?.announcement_comments.find(c => c.id === parentId);
@@ -288,6 +260,7 @@ const Announcements = () => {
     }
   };
 
+  // ✅ MOVED ABOVE useEffect - Hoisting fix
   const ReactionPill = ({ annId }) => (
     <motion.div 
       initial={{ opacity: 0, y: 10, scale: 0.8 }}
@@ -314,6 +287,29 @@ const Announcements = () => {
     </motion.div>
   );
 
+  // ✅ NOW useEffect can call these functions (they're defined above)
+  useEffect(() => {
+    fetchAnnouncements();
+    const channel = supabase
+      .channel('announcements-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements' }, async (payload) => {
+        if (payload.eventType === 'INSERT') {
+          const { data: profileData } = await supabase.from('profiles').select('id, full_name, avatar_url, role').eq('id', payload.new.created_by).single();
+          setAnnouncements(prev => [{ ...payload.new, profiles: profileData || { full_name: 'Company Admin', role: 'System' }, announcement_reactions: [], announcement_comments: [] }, ...prev]);
+        } else if (payload.eventType === 'UPDATE') {
+          setAnnouncements(prev => prev.map(a => a.id === payload.new.id ? { ...a, ...payload.new } : a));
+        } else if (payload.eventType === 'DELETE') {
+          setAnnouncements(prev => prev.filter(a => a.id !== payload.old.id));
+        }
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_reactions' }, () => fetchAnnouncements())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_comments' }, () => fetchAnnouncements())
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [profile]);
+
   return (
     <div className="max-w-4xl mx-auto py-8 px-4 space-y-8">
       <Breadcrumb items={[{ label: 'Announcements', path: null }]} />
@@ -324,7 +320,6 @@ const Announcements = () => {
         <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
         BACK TO DASHBOARD
       </button>
-
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
@@ -340,7 +335,6 @@ const Announcements = () => {
           </button>
         )}
       </div>
-
       {/* Announcements List */}
       <div className="space-y-6">
         {loading ? (
@@ -370,7 +364,6 @@ const Announcements = () => {
             <p className="text-slate-400 text-sm mt-1">Company-wide updates will appear here</p>
           </div>
         ) : announcements.map(ann => {
-
            const authorProfile = ann.profiles;
            const authorName = authorProfile?.full_name || 'Company Admin';
            const authorRole = authorProfile?.role || 'Admin';
@@ -380,7 +373,6 @@ const Announcements = () => {
              ...rt,
              count: ann.announcement_reactions?.filter(r => r.reaction_type === rt.type).length || 0
            })).filter(rt => rt.count > 0);
-
            return (
             <motion.div 
               key={ann.id} 
@@ -411,7 +403,6 @@ const Announcements = () => {
                     )}
                   </div>
                 </div>
-
                 {/* Content */}
                 <div className="px-1 mb-4">
                   <h2 className="text-xl font-bold text-[#0f172a] mb-2 leading-tight">{ann.title}</h2>
@@ -419,13 +410,11 @@ const Announcements = () => {
                     {ann.content}
                   </p>
                 </div>
-
                 {ann.image_url && (
                   <div className="mb-5 rounded-[20px] overflow-hidden border border-slate-50 shadow-sm">
                     <img src={ann.image_url} alt="" className="w-full h-auto object-cover max-h-[500px]" />
                   </div>
                 )}
-
                 {/* Actions Bar */}
                 <div className="mt-6 pt-4 border-t border-slate-50 flex items-center justify-between relative">
                    <div 
@@ -436,7 +425,6 @@ const Announcements = () => {
                      <AnimatePresence>
                        {hoveredReactionPost === ann.id && isReactionPillVisible && <ReactionPill annId={ann.id} />}
                      </AnimatePresence>
-
                      <button 
                         onClick={() => handleReact(ann.id, userReaction?.reaction_type || 'like')}
                         className={classNames(
@@ -449,7 +437,6 @@ const Announcements = () => {
                        <span className="text-lg">{userReaction ? REACTION_TYPES.find(r => r.type === userReaction.reaction_type)?.emoji : '👍'}</span>
                        <span>{userReaction ? REACTION_TYPES.find(r => r.type === userReaction.reaction_type)?.label : 'Like'}</span>
                      </button>
-
                      {reactionCounts.length > 0 && (
                        <div className="flex -space-x-1 ml-2">
                          {reactionCounts.slice(0, 3).map(r => (
@@ -461,7 +448,6 @@ const Announcements = () => {
                        </div>
                      )}
                    </div>
-
                    <button 
                      onClick={() => setShowComments({...showComments, [ann.id]: !showComments[ann.id]})} 
                      className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-[#0f172a] hover:bg-slate-50 rounded-full font-bold text-sm transition-all"
@@ -470,7 +456,6 @@ const Announcements = () => {
                      <span>Comments {ann.announcement_comments?.length > 0 ? `(${ann.announcement_comments.length})` : ''}</span>
                    </button>
                 </div>
-
                 {/* Comments Section */}
                 <AnimatePresence>
                 {showComments[ann.id] && (
@@ -499,7 +484,6 @@ const Announcements = () => {
                           </button>
                         </div>
                       </div>
-
                       {ann.announcement_comments?.filter(c => !c.parent_id).map(comment => (
                         <div key={comment.id} className="group/comment flex gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
                           <div className="w-9 h-9 rounded-full bg-slate-100 overflow-hidden shrink-0 flex items-center justify-center border border-slate-50">
@@ -579,7 +563,6 @@ const Announcements = () => {
            );
         })}
       </div>
-
       {/* Create Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -636,7 +619,6 @@ const Announcements = () => {
                     </label>
                   </div>
                 </div>
-
                 <div className="flex items-center gap-2 p-2 px-1">
                    <input 
                      type="checkbox" 
@@ -647,7 +629,6 @@ const Announcements = () => {
                    />
                    <label htmlFor="is_pinned" className="text-sm font-bold text-slate-600 cursor-pointer">Pin to top of feed</label>
                 </div>
-
                 <button 
                   type="submit" 
                   disabled={isSubmitting} 

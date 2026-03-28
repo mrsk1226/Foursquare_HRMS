@@ -37,46 +37,6 @@ const LeaveManagement = () => {
   const [permFormData, setPermFormData] = useState({ date: '', start_time: '', end_time: '', reason: 'Medical Appointment', otherReason: '', remarks: '' });
   const [rejectForm, setRejectForm] = useState({ id: null, type: '', reason: '', recipient_id: '', leave_type: '', start_date: '', end_date: '', date: '' });
 
-  useEffect(() => {
-    if (profile?.employee_id) {
-      loadData();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, activeTab, selectedEmployee]);
-
-  useEffect(() => {
-    if (location.state?.tab) {
-      setActiveTab(location.state.tab);
-    }
-    if (location.state?.highlightId) {
-      setHighlightId(String(location.state.highlightId));
-    }
-  }, [location.state]);
-
-  useEffect(() => {
-    if (!highlightId) return;
-
-    const targetRow = document.querySelector(`[data-request-row="${activeTab}-${highlightId}"]`);
-    if (!targetRow) return;
-
-    targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const timeoutId = window.setTimeout(() => setHighlightId(null), 5000);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [activeTab, highlightId, requests, permissionRequests]);
-
-  const loadData = async () => {
-    setLoading(true);
-    if (activeTab === 'MyLeaves') await fetchMyLeaves();
-    else if (activeTab === 'TeamLeaves') await fetchAllRequests();
-    else if (activeTab === 'MyPermissions') await fetchMyPermissions();
-    else if (activeTab === 'TeamPermissions') await fetchAllPermissions();
-    
-    await fetchMyBalances();
-    await fetchEmployees();
-    setLoading(false);
-  };
-
   const fetchEmployees = async () => {
     const { data } = await supabase.from('employees').select('employee_id, full_name, department');
     setAllEmployees(data || []);
@@ -110,6 +70,46 @@ const LeaveManagement = () => {
     const { data } = await query;
     setPermissionRequests(data || []);
   };
+
+  const loadData = async () => {
+    setLoading(true);
+    if (activeTab === 'MyLeaves') await fetchMyLeaves();
+    else if (activeTab === 'TeamLeaves') await fetchAllRequests();
+    else if (activeTab === 'MyPermissions') await fetchMyPermissions();
+    else if (activeTab === 'TeamPermissions') await fetchAllPermissions();
+    
+    await fetchMyBalances();
+    await fetchEmployees();
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (profile?.employee_id) {
+      loadData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, activeTab, selectedEmployee]);
+
+  useEffect(() => {
+    if (location.state?.tab) {
+      setActiveTab(location.state.tab);
+    }
+    if (location.state?.highlightId) {
+      setHighlightId(String(location.state.highlightId));
+    }
+  }, [location.state]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+
+    const targetRow = document.querySelector(`[data-request-row="${activeTab}-${highlightId}"]`);
+    if (!targetRow) return;
+
+    targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const timeoutId = window.setTimeout(() => setHighlightId(null), 5000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [activeTab, highlightId, requests, permissionRequests]);
 
   const calculateDays = (start, end, dept = '') => {
     let s = parseISO(start);
@@ -340,7 +340,7 @@ const LeaveManagement = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-black text-[#1E3A5F] tracking-tighter">LEAVE & PERMISSIONS</h1>
-          <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Workflow Management Engine</p>
+          <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Manage your leave requests</p>
         </div>
         <div className="flex bg-white p-1 rounded-xl shadow-sm border border-gray-100">
            {['MyLeaves', 'MyPermissions', 'TeamLeaves', 'TeamPermissions'].map(tab => (

@@ -90,6 +90,13 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
       for (var e in employeesRes) {
         if (e['employee_id'] != null) authorsMap[e['employee_id']] = e;
       }
+      
+      final profilesRes = await db.from('profiles').select('id, employee_id');
+      for (var p in profilesRes) {
+        if (p['employee_id'] != null && authorsMap.containsKey(p['employee_id'])) {
+          authorsMap[p['id']] = authorsMap[p['employee_id']]!;
+        }
+      }
 
       if (mounted) {
         setState(() {
@@ -184,7 +191,8 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
       appBar: AppBar(
         title: const Text('Engage',
             style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xFF1B2E4B),
+        backgroundColor: const Color(0xFF0F172A),
+        iconTheme: const IconThemeData(color: Colors.white),
         elevation: 0,
       ),
       body: Column(
@@ -459,28 +467,43 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
      final reactions = ['like', 'love', 'haha', 'wow', 'sad', 'clap'];
      final emojis = ['👍', '❤️', '😂', '😮', '😢', '👏'];
      
-     showDialog(
+     showGeneralDialog(
        context: context,
+       barrierDismissible: true,
+       barrierLabel: '',
        barrierColor: Colors.black.withValues(alpha: 0.2),
-       builder: (context) => Center(
-         child: Container(
-           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-           decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(30), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10)]),
-           child: Row(
-             mainAxisSize: MainAxisSize.min,
-             children: List.generate(reactions.length, (i) => GestureDetector(
-               onTap: () {
-                 Navigator.pop(context);
-                 _toggleReaction(annId, reactions[i]);
-               },
-               child: Padding(
-                 padding: const EdgeInsets.symmetric(horizontal: 8),
-                 child: Text(emojis[i], style: const TextStyle(fontSize: 28)),
+       pageBuilder: (context, a1, a2) => Container(),
+       transitionDuration: const Duration(milliseconds: 200),
+       transitionBuilder: (context, a1, a2, child) {
+         return Transform.scale(
+           scale: a1.value,
+           child: Center(
+             child: Material(
+               color: Colors.transparent,
+               child: Container(
+                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                 decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(30), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 10)]),
+                 child: SingleChildScrollView(
+                   scrollDirection: Axis.horizontal,
+                   child: Row(
+                     mainAxisSize: MainAxisSize.min,
+                     children: List.generate(reactions.length, (i) => GestureDetector(
+                       onTap: () {
+                         Navigator.pop(context);
+                         _toggleReaction(annId, reactions[i]);
+                       },
+                       child: Padding(
+                         padding: const EdgeInsets.symmetric(horizontal: 8),
+                         child: Text(emojis[i], style: const TextStyle(fontSize: 28)),
+                       ),
+                     )),
+                   ),
+                 ),
                ),
-             )),
+             ),
            ),
-         ),
-       ),
+         );
+       },
      );
   }
 

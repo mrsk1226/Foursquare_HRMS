@@ -20,7 +20,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   void initState() {
     super.initState();
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 3000),
+      duration: const Duration(milliseconds: 2000),
       vsync: this,
     );
 
@@ -28,14 +28,14 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     _logoOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0.0, 0.4, curve: Curves.easeIn),
+        curve: const Interval(0.0, 0.3, curve: Curves.easeIn), // 600ms
       ),
     );
 
     _textOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0.4, 0.7, curve: Curves.easeIn),
+        curve: const Interval(0.2, 0.5, curve: Curves.easeIn), // 400ms delay (started at 400ms)
       ),
     );
 
@@ -48,7 +48,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     );
 
     _controller.forward();
-    Future.delayed(const Duration(milliseconds: 3200), _checkSessionAndNavigate);
+    Future.delayed(const Duration(milliseconds: 2200), _checkSessionAndNavigate);
   }
 
   void _checkSessionAndNavigate() {
@@ -79,8 +79,8 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
             end: Alignment.bottomRight,
             colors: [
               Color(0xFF0F172A),
-              Color(0xFF1B2E4B),
-              Color(0xFF0F172A),
+              Color(0xFF1E3A5F),
+              Color(0xFF0A1628),
             ],
           ),
         ),
@@ -95,8 +95,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                   opacity: _logoOpacity,
                   child: Image.asset(
                     'assets/images/4 square White Colour.png',
-                    width: 100,
-                    height: 100,
+                    width: 200,
                     fit: BoxFit.contain,
                   ),
                 ),
@@ -108,20 +107,19 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                       Text(
                         'FOURSQUARE HRMS',
                         style: TextStyle(
-                          fontSize: 28,
+                          fontSize: 24,
                           fontWeight: FontWeight.w900,
                           color: Colors.white,
-                          letterSpacing: 1.5,
+                          letterSpacing: 2.0,
                         ),
                       ),
                       SizedBox(height: 4),
                       Text(
                         'HRMS PORTAL',
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: 13,
                           fontWeight: FontWeight.w500,
-                          color: Colors.white70,
-                          letterSpacing: 2.0,
+                          color: Colors.white60,
                         ),
                       ),
                     ],

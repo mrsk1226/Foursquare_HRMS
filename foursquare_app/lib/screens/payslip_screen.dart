@@ -82,8 +82,9 @@ class _PayslipScreenState extends State<PayslipScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Payslips'),
-        backgroundColor: const Color(0xFF1E3A5F),
+        title: const Text('My Payslips', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFF0F172A),
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       backgroundColor: const Color(0xFFF5F6FA),
       body: _isLoading

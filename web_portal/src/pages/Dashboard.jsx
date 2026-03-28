@@ -10,8 +10,9 @@ import {
   ArrowRight, CalendarDays, Cake, ChevronLeft, ChevronRight, Eye, EyeOff, FileText, GripVertical, 
   HeartHandshake, IndianRupee, Settings2, Sparkles, Users, UserCheck, CalendarOff, UserPlus, 
   Database, X, Cloud, CloudRain, Sun, CloudLightning, Thermometer, Droplets, MapPin, 
-  Clock as ClockIcon, Receipt, Megaphone, Phone, CheckSquare, DollarSign, CheckCircle, BarChart2, Edit, Plus, Trash2 
+  Clock as ClockIcon, Receipt, Megaphone, Phone, CheckSquare, DollarSign, CheckCircle, BarChart2, Edit, Plus, Trash2, ChevronUp, ChevronDown, Minus
 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
 
 const PAGE_MOTION = {
@@ -188,7 +189,7 @@ const WeatherWidget = () => {
   );
 };
 
-const LiveClock = () => {
+const LiveClock = ({ className }) => {
     const [time, setTime] = useState(new Date());
 
     useEffect(() => {
@@ -197,14 +198,13 @@ const LiveClock = () => {
     }, []);
 
     return (
-        <div className="flex flex-col items-center justify-center py-10 bg-white/5 backdrop-blur-xl border border-white/10 rounded-[32px] shadow-2xl relative overflow-hidden group">
-            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-            <div className="text-[3.5rem] font-light tracking-[0.1em] text-white leading-none drop-shadow-2xl">
-                {time.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+        <div className={`flex flex-col items-end ${className}`}>
+            <div className="text-lg font-black tracking-tight text-white leading-none">
+                {time.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit' })}
             </div>
-            <div className="mt-4 text-xs font-bold text-white/50 uppercase tracking-[0.4em] flex items-center gap-3">
-                <ClockIcon size={12} className="text-blue-400" />
-                {time.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            <div className="mt-1 text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-1.5">
+                <ClockIcon size={10} className="text-blue-400" />
+                {time.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
             </div>
         </div>
     );
@@ -214,10 +214,14 @@ const LiveClock = () => {
 export default function Dashboard() {
   const { profile } = useAuth();
   const [loadError, setLoadError] = useState('');
+  const offlineToastShown = useRef(false);
+
+  useEffect(() => {
+    if (!profile) return;
+  }, [profile]);
 
   return (
-    <MotionDiv {...PAGE_MOTION} className="mx-auto w-full max-w-[1440px] space-y-6">
-      <LiveClock />
+    <MotionDiv {...PAGE_MOTION} className="mx-auto w-full max-w-[1536px] px-6 py-6 space-y-6">
       
       {loadError && (
         <div className="bg-red-50 border border-red-200 rounded-3xl p-6 text-red-700 flex items-center justify-between mb-8 shadow-sm">
@@ -261,11 +265,19 @@ function ExecutiveOverview({ profile, onDataError }) {
   const [leaveBalances, setLeaveBalances] = useState([]);
   const [recentAnnouncements, setRecentAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [localError, setLocalError] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [favouriteCards, setFavouriteCards] = useState([]);
-  const celebrationRailRef = useRef(null);
-  const [celebrationProgress, setCelebrationProgress] = useState(0);
+  const offlineToastShown = useRef(false);
+
+  const defaultCards = useMemo(() => [
+    { key: 'attendance', label: 'Attendance', icon: 'Clock', route: '/attendance', description: 'View & punch attendance' },
+    { key: 'leave', label: 'Leave Requests', icon: 'Calendar', route: '/leave-requests', description: 'Apply & track leaves' },
+    { key: 'payslip', label: 'Salary Statements', icon: 'FileText', route: '/payroll', description: 'View payslips' },
+    { key: 'expenses', label: 'Claim Expenses', icon: 'Receipt', route: '/expenses', description: 'Submit expense claims' },
+    { key: 'profile', label: 'My Profile', icon: 'User', route: '/my-profile', description: 'View & edit profile' },
+    { key: 'feed', label: 'Company Feed', icon: 'Megaphone', route: '/announcements', description: 'Company updates' },
+  ], []);
 
   // Load Everything
   useEffect(() => {
@@ -273,13 +285,33 @@ function ExecutiveOverview({ profile, onDataError }) {
     async function loadData() {
       if (!profile?.id) return;
       setLoading(true);
+      
+      const localKey = `fsq_dashboard_cards_${profile.employee_id}`;
+      const saved = localStorage.getItem(localKey);
+      let userFavs = [];
+      if (saved) {
+        userFavs = JSON.parse(saved);
+      } else {
+        userFavs = defaultCards.map(c => ({
+          ...c,
+          id: c.key,
+          card_key: c.key,
+          card_label: c.label,
+          card_icon: c.icon,
+          card_route: c.route,
+          card_description: c.description,
+          is_visible: true
+        }));
+        localStorage.setItem(localKey, JSON.stringify(userFavs));
+      }
+      setFavouriteCards(userFavs);
+
       try {
         const today = new Date();
-        const [empRes, balRes, annRes, favRes] = await Promise.all([
+        const [empRes, balRes, annRes] = await Promise.all([
           supabase.from('employees').select('id, employee_id, full_name, dob, photo_url'),
           supabase.from('leave_balances').select('*').eq('employee_id', profile.employee_id).eq('year', today.getFullYear()),
-          supabase.from('announcements').select('*').order('created_at', { ascending: false }).limit(4),
-          supabase.from('user_favourites').select('*').eq('user_id', profile.id).order('created_at', { ascending: false })
+          supabase.from('announcements').select('*').order('created_at', { ascending: false }).limit(4)
         ]);
 
         if (!isActive) return;
@@ -299,24 +331,17 @@ function ExecutiveOverview({ profile, onDataError }) {
           }];
         });
 
-        // Favourites Seeding
-        let userFavs = favRes.data || [];
-        if (userFavs.length === 0) {
-          const role = (profile?.role || 'employee').toLowerCase();
-          const defaults = MASTER_CARDS[role] || MASTER_CARDS.employee;
-          const toInsert = defaults.map((c, i) => ({
-            user_id: profile.id, card_key: c.key, card_label: c.label,
-            card_icon: c.icon, card_route: c.route, card_description: c.description,
-            is_visible: true
-          }));
-          const { data: seeded } = await supabase.from('user_favourites').insert(toInsert).select();
-          userFavs = seeded || [];
+        if (empRes.data) {
+          const self = empRes.data.find(e => e.employee_id === profile.employee_id);
+          if (self && self.full_name) {
+            setDisplayName(self.full_name);
+          }
         }
 
         setCelebrations(births.sort((a,b) => a.date - b.date));
         setLeaveBalances((balRes.data || []).map(normalizeLeaveBalance));
         setRecentAnnouncements(annRes.data || []);
-        setFavouriteCards(userFavs);
+
       } catch (err) {
         console.error('Dash Error:', err);
       } finally {
@@ -325,32 +350,51 @@ function ExecutiveOverview({ profile, onDataError }) {
     }
     loadData();
     return () => { isActive = false; };
-  }, [profile]);
+  }, [profile, defaultCards]);
 
-  const toggleVisibility = async (cardId, current) => {
-    const updated = favouriteCards.map(c => c.id === cardId ? {...c, is_visible: !current} : c);
+  const saveToPersistence = (updated) => {
+    const localKey = `fsq_dashboard_cards_${profile.employee_id}`;
+    localStorage.setItem(localKey, JSON.stringify(updated));
     setFavouriteCards(updated);
-    await supabase.from('user_favourites').update({ is_visible: !current }).eq('id', cardId);
   };
 
-  const removeFavourite = async (cardId) => {
-    setFavouriteCards(favouriteCards.filter(c => c.id !== cardId));
-    await supabase.from('user_favourites').delete().eq('id', cardId);
+  const removeFavourite = (cardId) => {
+    const updated = favouriteCards.filter(c => c.id !== cardId);
+    saveToPersistence(updated);
   };
 
-  const addFavourite = async (masterCard) => {
+  const addFavourite = (masterCard) => {
+    if (favouriteCards.some(f => f.card_key === masterCard.key)) return;
     const newFav = {
-      user_id: profile.id, card_key: masterCard.key, card_label: masterCard.label,
-      card_icon: masterCard.icon, card_route: masterCard.route, card_description: masterCard.description,
+      id: masterCard.key,
+      user_id: profile.id, 
+      card_key: masterCard.key, 
+      card_label: masterCard.label,
+      card_icon: masterCard.icon, 
+      card_route: masterCard.route, 
+      card_description: masterCard.description,
       is_visible: true
     };
-    const { data } = await supabase.from('user_favourites').insert([newFav]).select();
-    if (data) setFavouriteCards([...favouriteCards, data[0]]);
+    const updated = [...favouriteCards, newFav];
+    saveToPersistence(updated);
   };
 
-  const handleReorder = async (newOrder) => {
-    setFavouriteCards(newOrder);
-    // Note: Reordering persistence is disabled as sort_order column does not exist
+  const moveUp = (index) => {
+    if (index === 0) return;
+    const updated = [...favouriteCards];
+    const temp = updated[index - 1];
+    updated[index - 1] = updated[index];
+    updated[index] = temp;
+    saveToPersistence(updated);
+  };
+
+  const moveDown = (index) => {
+    if (index === favouriteCards.length - 1) return;
+    const updated = [...favouriteCards];
+    const temp = updated[index + 1];
+    updated[index + 1] = updated[index];
+    updated[index] = temp;
+    saveToPersistence(updated);
   };
 
   const greeting = useMemo(() => {
@@ -375,13 +419,39 @@ function ExecutiveOverview({ profile, onDataError }) {
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_0.9fr]">
       <div className="space-y-6">
-        <section className="relative overflow-hidden rounded-[36px] bg-[linear-gradient(135deg,#0f172a_0%,#1e3a5f_38%,#2563eb_100%)] p-8 text-white shadow-2xl">
-          <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+        <section className="relative overflow-hidden rounded-[40px] bg-[linear-gradient(135deg,#0f172a_0%,#1e293b_35%,#334155_100%)] p-10 text-white shadow-[0_20px_50px_rgba(0,0,0,0.3)]">
+          <div className="absolute top-0 right-0 p-8">
+            <LiveClock />
+          </div>
+          
+          <div className="relative flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between pr-24">
             <div>
-              <h1 className="text-4xl font-black tracking-tight">{greeting}, {profile?.full_name?.split(' ')[0]}</h1>
-              <p className="mt-3 text-sm text-white/70">Your HR workspace is ready. Monitor attendance, process claims, and celebrate team wins.</p>
+              <div className="flex items-center gap-3 mb-4">
+                 <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_10px_#34d399]" />
+                 <span className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-400/80">Live • Dashboard</span>
+              </div>
+              <h1 className="text-5xl font-black tracking-tight leading-tight text-white mb-2">
+                {greeting}{displayName ? ',' : '!'}
+              </h1>
+              {displayName && (
+                <h1 className="text-6xl font-black tracking-tighter leading-none mb-6">
+                  <span style={{
+                      background: 'linear-gradient(135deg, #60a5fa 0%, #a78bfa 50%, #f472b6 100%)',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent',
+                      backgroundClip: 'text',
+                      display: 'inline-block',
+                      paddingRight: '20px'
+                  }}>
+                    {displayName}
+                  </span>
+                </h1>
+              )}
+              <p className="mt-4 text-sm text-white/50 max-w-md leading-relaxed">Your HR ecosystem is fully operational. Manage team velocity, approvals, and workplace culture from one central hub.</p>
             </div>
-            <WeatherWidget />
+            <div className="lg:mt-6">
+               <WeatherWidget />
+            </div>
           </div>
 
           <div className="mt-12">
@@ -393,127 +463,86 @@ function ExecutiveOverview({ profile, onDataError }) {
             </div>
           </div>
         </section>
-        <section className="relative rounded-[32px] bg-slate-900 p-6 shadow-xl overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-transparent" />
-          <div className="relative flex items-center justify-between mb-6">
+        <section className="relative rounded-[40px] bg-[#0f172a] shadow-[0_20px_50px_rgba(0,0,0,0.2)] border border-white/5 p-8 transition-all hover:border-white/10 group">
+          <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2" />
+          <div className="relative flex items-center justify-between mb-8">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/40">My Workspace</p>
-              <h2 className="text-xl font-black text-white">Daily Actions</h2>
+              <p className="text-[10px] font-black uppercase tracking-[0.4em] text-blue-400/60 mb-1">Productivity</p>
+              <h2 className="text-2xl font-black text-white">Daily Actions</h2>
             </div>
-            <button onClick={() => setIsDrawerOpen(true)} className="flex items-center gap-2 px-4 py-2 bg-white/10 rounded-full text-xs font-bold text-white hover:bg-white/20 transition-all">
-              <Settings2 size={14} /> Customise
+            <button onClick={() => setIsDrawerOpen(true)} className="flex items-center gap-2 px-5 py-2.5 bg-white/5 border border-white/10 rounded-full text-[11px] font-black uppercase tracking-widest text-white/70 hover:bg-white/10 hover:text-white transition-all">
+              <Settings2 size={12} /> Customize Workspace
             </button>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {favouriteCards.filter(c => c.is_visible).map(card => (
-              <FavouriteCard 
-                key={card.id} 
-                title={card.card_label} 
-                subtitle={card.card_description} 
-                icon={ICON_MAP[card.card_icon] || ICON_MAP.Default}
-                onClick={() => navigate(card.card_route)}
-              />
-            ))}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            <AnimatePresence mode="popLayout">
+              {favouriteCards.filter(c => c.is_visible).map(card => (
+                <FavouriteCard 
+                  key={card.id || card.card_key} 
+                  title={card.card_label} 
+                  subtitle={card.card_description} 
+                  icon={ICON_MAP[card.card_icon] || ICON_MAP.Default}
+                  onClick={() => navigate(card.card_route)}
+                />
+              ))}
+            </AnimatePresence>
           </div>
         </section>
       </div>
 
-      <div className="space-y-6">
-        <section className="bg-white rounded-[32px] border border-slate-100 p-6 shadow-sm">
-          <h2 className="text-lg font-black text-slate-900 mb-6 flex items-center gap-2">
-            <HeartHandshake className="text-blue-500" size={20} /> Leave Balance
-          </h2>
-          <div className="space-y-4">
-            {leaveStats.map((item, i) => (
+      <aside className="space-y-8">
+        <section className="glass-gpu rounded-[40px] border border-white/60 bg-white/80 p-8 shadow-[0_24px_60px_rgba(15,23,42,0.06)] backdrop-blur-xl">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400">My Status</p>
+              <h2 className="text-2xl font-black text-slate-900 mt-1">Leave Balance</h2>
+            </div>
+            <HeartHandshake className="text-blue-500" size={24} />
+          </div>
+          <div className="space-y-5">
+            {loading ? <StatsWidgetSkeleton rows={3} /> : leaveStats.map((item, index) => (
               <QuickStatBar 
                 key={item.key} 
                 item={item} 
-                index={i} 
+                index={index} 
                 onClick={() => navigate(`/leave-requests?type=${item.key}&tab=balance`)}
               />
             ))}
           </div>
         </section>
 
-        <section className="bg-white rounded-[32px] border border-slate-100 overflow-hidden shadow-sm">
-          <div className="p-6 border-b border-slate-50 flex items-center justify-between">
-            <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
-              <Megaphone className="text-sky-500" size={20} /> Announcements
-            </h2>
-            <button onClick={() => navigate('/announcements')} className="text-xs font-bold text-blue-600 hover:text-blue-700 font-mono">VIEW ALL →</button>
+        <section className="glass-gpu rounded-[40px] border border-white/60 bg-white/85 p-8 shadow-[0_24px_60px_rgba(15,23,42,0.08)] backdrop-blur-xl overflow-hidden">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400">Updates</p>
+              <h2 className="text-2xl font-black text-slate-900 mt-1">Latest News</h2>
+            </div>
+            <button onClick={() => navigate('/announcements')} className="text-[10px] font-black text-blue-600 hover:text-blue-800 tracking-widest uppercase">
+              View All
+            </button>
           </div>
-          <div className="divide-y divide-slate-50">
-            {recentAnnouncements.length ? recentAnnouncements.map(ann => (
+          <div className="space-y-4">
+            {loading ? (
+               <div className="space-y-6">
+                 {[1,2,3].map(i => <div key={i} className="animate-pulse"><div className="h-3 bg-slate-200 rounded w-1/4 mb-2"></div><div className="h-4 bg-slate-200 rounded w-3/4"></div></div>)}
+               </div>
+            ) : recentAnnouncements.length ? recentAnnouncements.map(ann => (
               <button 
                 key={ann.id} 
                 onClick={() => navigate(`/announcements?post=${ann.id}`)}
-                className="w-full p-6 text-left hover:bg-slate-50 transition-colors group"
+                className="w-full text-left group p-4 -mx-4 rounded-3xl hover:bg-white/50 transition-all border border-transparent hover:border-white/40"
               >
-                <div className="flex justify-between items-start mb-2">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{formatDistanceToNow(new Date(ann.created_at))} ago</span>
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{formatDistanceToNow(new Date(ann.created_at))} ago</span>
                   {ann.is_pinned && <span className="w-1.5 h-1.5 bg-blue-500 rounded-full" />}
                 </div>
-                <h3 className="text-sm font-bold text-slate-800 line-clamp-1 group-hover:text-blue-600 transition-colors">{ann.title}</h3>
-                <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">{ann.content}</p>
+                <h3 className="text-sm font-black text-slate-800 group-hover:text-blue-600 transition-colors line-clamp-1">{ann.title}</h3>
+                <p className="text-xs text-slate-500 mt-2 line-clamp-2 leading-relaxed opacity-70">{ann.content}</p>
               </button>
-            )) : <div className="p-10 text-center text-slate-400 italic text-sm">No recent updates</div>}
+            )) : <div className="py-12 text-center text-slate-400 italic text-sm">No recent updates found</div>}
           </div>
         </section>
-      </div>
-
-      <div className="space-y-6">
-        <section className="glass-gpu rounded-[32px] border border-white/40 bg-white/90 p-6 shadow-[0_24px_60px_rgba(15,23,42,0.06)]">
-
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Quick Stats</p>
-              <h2 className="mt-2 text-xl font-black text-slate-900">Leave Balance</h2>
-            </div>
-            <HeartHandshake className="text-sky-500" size={20} />
-          </div>
-          <div className="mt-6 space-y-5">
-            {loading ? <StatsWidgetSkeleton rows={3} /> : leaveStats.map((item, index) => <QuickStatBar key={item.key} item={item} index={index} />)}
-          </div>
-        </section>
-
-        <section className="glass-gpu overflow-hidden rounded-[32px] border border-white/40 bg-white/90 shadow-[0_24px_60px_rgba(15,23,42,0.06)]">
-
-          <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Updates</p>
-              <h2 className="mt-2 text-xl font-black text-slate-900">Latest Announcements</h2>
-            </div>
-            <button onClick={() => navigate('/announcements')} className="inline-flex items-center gap-1 text-sm font-semibold text-sky-600 transition-colors hover:text-slate-900">
-              View all
-              <ChevronRight size={16} />
-            </button>
-          </div>
-          <div>
-            {loading ? (
-              <div className="space-y-5 px-6 py-5">
-                {Array.from({ length: 3 }).map((_, index) => (
-                  <div key={index} className="flex gap-4">
-                    <SkeletonBlock className="h-7 w-16 rounded-full" />
-                    <div className="w-full">
-                      <SkeletonBlock className="h-4 w-5/6 rounded-full" />
-                      <SkeletonBlock className="mt-2 h-4 w-2/3 rounded-full" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : recentAnnouncements.length ? recentAnnouncements.map((item) => (
-              <UpdateItem key={`${item.title}-${item.created_at}`} date={format(new Date(item.created_at), 'dd MMM')} desc={item.title || item.content || 'Organisation update'} />
-            )) : (
-              <div className="px-6 py-6">
-                <EmptyStatePanel
-                  title="No updates are available yet"
-                  description={localError || 'Announcements and company updates will show here once they are published.'}
-                />
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
+      </aside>
 
       {/* CUSTOMISE DRAWER */}
       <AnimatePresence>
@@ -533,50 +562,68 @@ function ExecutiveOverview({ profile, onDataError }) {
                 <button onClick={() => setIsDrawerOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={24}/></button>
               </div>
 
-              <div className="flex-1 overflow-y-auto space-y-8 pr-2">
+              <div className="flex-1 overflow-y-auto space-y-10 pr-2">
                 <div>
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mb-4">Your Cards (Drag to reorder)</h3>
-                  <ReorderGroup axis="y" values={favouriteCards} onReorder={handleReorder} className="space-y-3">
-                    {favouriteCards.map(card => (
-                      <ReorderItem key={card.id} value={card} className="bg-slate-50 rounded-2xl p-4 border border-slate-200 cursor-move flex items-center gap-4">
-                        <GripVertical className="text-slate-300" size={18} />
+                  <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-6 flex items-center justify-between">
+                    <span>Active Workspace</span>
+                    <span className="bg-blue-50 text-blue-600 px-2.5 py-1 rounded-full text-[9px]">{favouriteCards.length} Cards</span>
+                  </h3>
+                  <div className="space-y-3">
+                    {favouriteCards.map((card, idx) => (
+                      <div 
+                        key={card.id || card.card_key} 
+                        className={`bg-white rounded-[24px] p-5 border shadow-sm flex items-center gap-5 transition-all ${card.is_visible ? 'border-slate-100' : 'border-slate-100 opacity-60'}`}
+                      >
+                        <div className="flex flex-col gap-1 items-center justify-center pr-2">
+                           <button onClick={(e) => { e.stopPropagation(); moveUp(idx); }} disabled={idx === 0} className="text-slate-300 hover:text-blue-500 disabled:opacity-30"><ChevronUp size={16} /></button>
+                           <button onClick={(e) => { e.stopPropagation(); moveDown(idx); }} disabled={idx === favouriteCards.length - 1} className="text-slate-300 hover:text-blue-500 disabled:opacity-30"><ChevronDown size={16} /></button>
+                        </div>
                         <div className="flex-1">
-                          <p className="text-sm font-bold text-slate-800">{card.card_label}</p>
+                          <p className="text-sm font-black text-slate-800">{card.card_label}</p>
+                          <p className="text-[10px] text-slate-400">{card.card_description}</p>
                         </div>
                         <div className="flex items-center gap-2">
-                          <button onClick={(e) => { e.stopPropagation(); toggleVisibility(card.id, card.is_visible); }} className={`p-2 rounded-xl transition-colors ${card.is_visible ? 'bg-blue-50 text-blue-600' : 'bg-slate-200 text-slate-400'}`}>
-                            {card.is_visible ? <Eye size={16} /> : <EyeOff size={16} />}
-                          </button>
-                          <button onClick={(e) => { e.stopPropagation(); removeFavourite(card.id); }} className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-100 transition-colors">
-                            <Trash2 size={16} />
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); removeFavourite(card.id); }} 
+                            className="w-10 h-10 bg-rose-50 text-rose-500 rounded-2xl flex items-center justify-center hover:bg-rose-100 transition-all font-black text-lg"
+                          >
+                            <Minus size={18} />
                           </button>
                         </div>
-                      </ReorderItem>
+                      </div>
                     ))}
-                  </ReorderGroup>
+                  </div>
                 </div>
 
                 <div>
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-[0.2em] mb-4">Add More</h3>
-                  <div className="space-y-3">
-                    {(MASTER_CARDS[profile?.role?.toLowerCase()] || MASTER_CARDS.employee)
+                  <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] mb-6">Available Modules</h3>
+                  <div className="grid grid-cols-1 gap-4">
+                    {defaultCards
                       .filter(m => !favouriteCards.some(f => f.card_key === m.key))
                       .map(m => (
-                        <div key={m.key} className="bg-white rounded-2xl p-4 border border-slate-100 shadow-sm flex items-center justify-between group">
+                        <div key={m.key} className="bg-slate-50 rounded-[24px] p-5 border border-slate-100 flex items-center justify-between group transition-all hover:bg-white hover:shadow-md hover:border-blue-100">
                           <div className="flex items-center gap-4">
-                            <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center text-slate-400 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
-                              {React.createElement(ICON_MAP[m.icon] || ICON_MAP.Default, { size: 18 })}
+                            <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 shadow-sm group-hover:bg-blue-600 group-hover:text-white transition-all">
+                              {React.createElement(ICON_MAP[m.icon] || ICON_MAP.Default, { size: 20 })}
                             </div>
                             <div>
-                              <p className="text-sm font-bold text-slate-800">{m.label}</p>
+                              <p className="text-sm font-black text-slate-800">{m.label}</p>
                               <p className="text-[10px] text-slate-400">{m.description}</p>
                             </div>
                           </div>
-                          <button onClick={() => addFavourite(m)} className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all">
-                            <Plus size={18} />
+                          <button 
+                            onClick={() => addFavourite(m)} 
+                            className="w-10 h-10 bg-white border border-slate-200 text-slate-400 rounded-2xl flex items-center justify-center hover:bg-blue-600 hover:text-white hover:border-blue-600 transition-all"
+                          >
+                            <Plus size={20} />
                           </button>
                         </div>
                       ))}
+                    {defaultCards.filter(m => !favouriteCards.some(f => f.card_key === m.key)).length === 0 && (
+                        <div className="py-10 text-center text-slate-400 text-xs italic bg-slate-50 rounded-[24px] border border-dashed border-slate-200">
+                            All modules are already in your workspace
+                        </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -794,14 +841,24 @@ function LiveStats() {
     }
 
     fetchStats();
-    const channel = supabase.channel('realtime-dashboard')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_logs' }, fetchStats)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_requests' }, fetchStats)
-      .subscribe();
+    let channel;
+    try {
+        channel = supabase.channel('realtime-dashboard')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_logs' }, fetchStats)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_requests' }, fetchStats)
+          .subscribe((status) => {
+            if (status === 'CHANNEL_ERROR' && !offlineToastShown.current) {
+                console.log('Supabase Realtime disconnected');
+                offlineToastShown.current = true;
+            }
+          });
+    } catch (err) {
+        console.error('Realtime subscription failed:', err);
+    }
 
     return () => {
       isActive = false;
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, []);
 
