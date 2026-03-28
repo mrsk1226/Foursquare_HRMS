@@ -19,6 +19,7 @@ class _LeaveScreenState extends State<LeaveScreen>
   String _fullName = '';
   String _userRole = 'employee';
   String _department = '';
+  String _reportingManagerId = '';
   bool _isLoading = true;
 
   List<dynamic> _leaveRequests = [];
@@ -67,7 +68,7 @@ class _LeaveScreenState extends State<LeaveScreen>
 
       final employeeData = await supabase
           .from('employees')
-          .select('full_name, department')
+          .select('full_name, department, manager')
           .eq('employee_id', empId)
           .single();
 
@@ -76,6 +77,7 @@ class _LeaveScreenState extends State<LeaveScreen>
           _employeeId = empId;
           _fullName = employeeData['full_name'] ?? '';
           _department = employeeData['department'] ?? '';
+          _reportingManagerId = employeeData['manager'] ?? '';
           _userRole = role;
           _isLoading = false;
         });
@@ -978,12 +980,40 @@ class _LeaveScreenState extends State<LeaveScreen>
 
     try {
       final totalDays = endDate.difference(startDate).inDays + 1;
-      final isHR = _userRole.toLowerCase() == 'hr';
-
-      final hrStatus = 'pending';
-      final mdStatus = 'approved'; // MD skipped
-      final overallStatus = 'pending';
       final appliedByRole = _userRole.toLowerCase();
+
+      // Notification & Approval Routing
+      final hasManager = _reportingManagerId.isNotEmpty;
+      final isHR = appliedByRole == 'hr';
+      
+      String recipientId;
+      String notifTitle;
+      String notifMessage;
+      int approvalLevel;
+
+      if (isHR) {
+        // HR goes to MD
+        recipientId = 'FSQ000';
+        notifTitle = '🔔 HR Leave - MD Approval Needed';
+        notifMessage = 'HR Manager applied for $selectedLeaveType. Needs your final approval.';
+        approvalLevel = 2; 
+      } else if (hasManager) {
+        // Employee with manager goes to manager
+        recipientId = _reportingManagerId;
+        notifTitle = '📋 New Team Leave Request';
+        notifMessage = '$_fullName applied for $selectedLeaveType from '
+            '${DateFormat('dd MMM').format(startDate)} to '
+            '${DateFormat('dd MMM').format(endDate)} ($totalDays days)';
+        approvalLevel = 1;
+      } else {
+        // Employee without manager goes to HR
+        recipientId = 'FSQ002';
+        notifTitle = '📋 New Leave Request';
+        notifMessage = '$_fullName applied for $selectedLeaveType from '
+            '${DateFormat('dd MMM').format(startDate)} to '
+            '${DateFormat('dd MMM').format(endDate)} ($totalDays days)';
+        approvalLevel = 2; // Direct to HR is considered level 2 in this simplified flow if MD is final
+      }
 
       final res = await supabase
           .from('leave_requests')
@@ -993,24 +1023,16 @@ class _LeaveScreenState extends State<LeaveScreen>
             'start_date': startDate.toIso8601String().split('T')[0],
             'end_date': endDate.toIso8601String().split('T')[0],
             'reason': reason,
-            'status': overallStatus,
-            'hr_status': hrStatus,
-            'md_status': mdStatus,
+            'status': 'pending',
+            'hr_status': isHR || !hasManager ? 'pending' : 'approved', 
+            'md_status': 'approved', 
             'applied_by_role': appliedByRole,
             'total_days': totalDays,
+            'current_approval_level': approvalLevel,
+            'level_1_approver_id': hasManager ? _reportingManagerId : 'FSQ002',
           })
           .select()
           .single();
-
-      // Notification routing
-      final recipientId = isHR ? 'FSQ000' : 'FSQ002';
-      final notifTitle =
-          isHR ? '🔔 HR Leave - MD Approval Needed' : '📋 New Leave Request';
-      final notifMessage = isHR
-          ? 'HR Manager applied for $selectedLeaveType. Needs your final approval.'
-          : '$_fullName applied for $selectedLeaveType from '
-              '${DateFormat('dd MMM').format(startDate)} to '
-              '${DateFormat('dd MMM').format(endDate)} ($totalDays days)';
 
       await supabase.from('notifications').insert({
         'recipient_employee_id': recipientId,
@@ -1026,7 +1048,7 @@ class _LeaveScreenState extends State<LeaveScreen>
       if (mounted) {
         Navigator.pop(context);
         _loadLeaveRequests();
-        final approver = _department.toUpperCase() == 'SHOWROOM' ? 'Dinesh' : 'HR';
+        final approver = isHR ? 'MD' : (hasManager ? 'Reporting Manager' : 'HR');
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('✅ Leave applied! Waiting for $approver approval.'),
           backgroundColor: Colors.green,
@@ -1328,16 +1350,37 @@ class _LeaveScreenState extends State<LeaveScreen>
     try {
       final finalReason =
           selectedReason == 'Others' ? othersText : selectedReason;
-      final isHR = _userRole.toLowerCase() == 'hr';
-
-      final hrStatus = 'pending';
-      final mdStatus = 'approved'; // MD skipped
-      final overallStatus = 'pending';
 
       final startTimeStr =
           '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}:00';
       final endTimeStr =
           '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}:00';
+
+      // Notification & Approval Routing
+      final hasManager = _reportingManagerId.isNotEmpty;
+      final isHR = _userRole.toLowerCase() == 'hr';
+
+      String recipientId;
+      String notifTitle;
+      String notifMessage;
+      int approvalLevel;
+
+      if (isHR) {
+        recipientId = 'FSQ000';
+        notifTitle = '🔔 HR Permission - MD Approval Needed';
+        notifMessage = 'HR Manager requested permission on ${DateFormat('dd MMM').format(permDate)} for $finalReason. Needs your approval.';
+        approvalLevel = 2;
+      } else if (hasManager) {
+        recipientId = _reportingManagerId;
+        notifTitle = '📋 New Team Permission Request';
+        notifMessage = '$_fullName requested permission on ${DateFormat('dd MMM').format(permDate)} for $finalReason ($duration min)';
+        approvalLevel = 1;
+      } else {
+        recipientId = 'FSQ002';
+        notifTitle = '📋 New Permission Request';
+        notifMessage = '$_fullName requested permission on ${DateFormat('dd MMM').format(permDate)} for $finalReason ($duration min)';
+        approvalLevel = 2;
+      }
 
       final res = await supabase
           .from('permissions')
@@ -1349,25 +1392,22 @@ class _LeaveScreenState extends State<LeaveScreen>
             'duration_minutes': duration,
             'reason': finalReason,
             'remarks': remarks,
-            'status': overallStatus,
-            'hr_status': hrStatus,
-            'md_status': mdStatus,
+            'status': 'pending',
+            'hr_status': isHR || !hasManager ? 'pending' : 'approved',
+            'md_status': 'approved',
             'applied_by_role': _userRole.toLowerCase(),
+            'current_approval_level': approvalLevel,
+            'level_1_approver_id': hasManager ? _reportingManagerId : 'FSQ002',
           })
           .select()
           .single();
 
-      final recipientId = isHR ? 'FSQ000' : 'FSQ002';
       await supabase.from('notifications').insert({
         'recipient_employee_id': recipientId,
         'sender_employee_id': _employeeId,
         'type': 'permission_request',
-        'title': isHR
-            ? '🔔 HR Permission - MD Approval Needed'
-            : '📋 New Permission Request',
-        'message': isHR
-            ? 'HR Manager requested permission on ${DateFormat('dd MMM').format(permDate)} for $finalReason. Needs your approval.'
-            : '$_fullName requested permission on ${DateFormat('dd MMM').format(permDate)} for $finalReason ($duration min)',
+        'title': notifTitle,
+        'message': notifMessage,
         'reference_type': 'permission_request',
         'reference_id': res['id'].toString(),
         'is_read': false,
@@ -1376,7 +1416,7 @@ class _LeaveScreenState extends State<LeaveScreen>
       if (mounted) {
         Navigator.pop(context);
         _loadPermissions();
-        final approver = _department.toUpperCase() == 'SHOWROOM' ? 'Dinesh' : 'HR';
+        final approver = isHR ? 'MD' : (hasManager ? 'Reporting Manager' : 'HR');
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('✅ Permission applied! Waiting for $approver approval.'),
           backgroundColor: Colors.green,

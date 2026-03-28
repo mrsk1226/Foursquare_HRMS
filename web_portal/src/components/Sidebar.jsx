@@ -60,7 +60,7 @@ const Sidebar = () => {
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, roles: ['admin', 'hr', 'employee'] },
-    { name: 'Employees', path: '/employees', icon: Users, roles: ['admin', 'md', 'hr'] },
+    { name: 'Employees', path: '/employees', icon: Users, roles: ['admin', 'md', 'hr', 'manager'] },
     { name: 'Attendance', path: '/attendance', icon: CalendarCheck, roles: ['admin', 'md', 'hr', 'employee'] },
     { name: 'Leave Requests', path: '/leaves', icon: CalendarDays, roles: ['admin', 'md', 'hr', 'employee'] },
     { name: 'Manager Approvals', path: '/manager-approvals', icon: ShieldCheck, roles: ['manager'] },

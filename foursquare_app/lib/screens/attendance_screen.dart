@@ -18,20 +18,28 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   bool _isLoading = true;
   String? _employeeId;
   String? _workLocation;
-  String? _selectedOffice; // 'Main Office' or 'Showroom'
-  Map<String, dynamic>? _todayLog;
-  List<dynamic> _monthlyLogs = [];
+  String? _selectedOffice;
 
-  // Final Stat Display values
-  int _presentCount = 0;
-  int _absentCount = 0;
-  int _leaveCount = 0;
+  // Punch State
+  bool _isPunchedIn = false;
+  bool _isPunchedOut = false;
+  DateTime? _punchInTime;
+  DateTime? _punchOutTime;
+  Map<String, dynamic>? _todayLog;
+
+  // Timer
+  Timer? _timer;
+  Duration _elapsed = Duration.zero;
+
+  // Calendar & Stats
+  Map<DateTime, Map<String, dynamic>> _attendanceMap = {};
+  List<dynamic> _monthlyLogs = [];
   List<dynamic> _leaves = [];
   List<dynamic> _holidays = [];
+
+  int _presentCount = 0;
+  int _absentCount = 0;
   double _totalHoursCount = 0;
-  String _currentTimeStr = '--:--';
-  DateTime _now = DateTime.now();
-  Timer? _timer;
 
   // Office Data
   final Map<String, dynamic> _offices = {
@@ -50,32 +58,55 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   @override
   void initState() {
     super.initState();
-    _fetchAttendanceData();
-    _startTimer();
+    _initializeScreen();
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _stopTimer();
     super.dispose();
   }
 
+  Future<void> _initializeScreen() async {
+    setState(() => _isLoading = true);
+    await _loadEmployeeProfile();
+    if (_employeeId != null) {
+      await _loadTodayAttendance();
+      await _loadMonthAttendance();
+      _calculateStats();
+    }
+    setState(() => _isLoading = false);
+
+    if (_isPunchedIn && !_isPunchedOut && _punchInTime != null) {
+      _elapsed = DateTime.now().difference(_punchInTime!);
+      _startTimer();
+    }
+  }
+
   void _startTimer() {
+    _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
+      if (_punchInTime != null && mounted) {
         setState(() {
-          _now = DateTime.now();
-          if (_todayLog?['check_in'] != null && _todayLog?['check_out'] == null) {
-            _currentTimeStr = DateFormat('hh:mm:ss a').format(_now);
-          } else {
-            _currentTimeStr = '--:--';
-          }
+          _elapsed = DateTime.now().difference(_punchInTime!);
         });
       }
     });
   }
 
-  Future<void> _fetchAttendanceData() async {
+  void _stopTimer() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  String get _timerDisplay {
+    final h = _elapsed.inHours.toString().padLeft(2, '0');
+    final m = (_elapsed.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (_elapsed.inSeconds % 60).toString().padLeft(2, '0');
+    return '$h:$m:$s';
+  }
+
+  Future<void> _loadEmployeeProfile() async {
     try {
       final user = SupabaseConfig.client.auth.currentUser;
       if (user == null) return;
@@ -85,93 +116,111 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           .select('employee_id')
           .eq('id', user.id)
           .maybeSingle();
-      
+
       if (profileRes != null && profileRes['employee_id'] != null) {
         _employeeId = profileRes['employee_id'];
-        
         final empRes = await SupabaseConfig.client
             .from('employees')
             .select('work_location')
-            .eq('employee_id', _employeeId as String)
+            .eq('employee_id', _employeeId!)
             .maybeSingle();
         _workLocation = empRes?['work_location'] ?? 'Main Office';
-
-        final now = DateTime.now();
-        final todayStr = DateFormat('yyyy-MM-dd').format(now);
-        
-        final todayRes = await SupabaseConfig.client
-            .from('attendance_logs')
-            .select()
-            .eq('employee_id', _employeeId as String)
-            .eq('date', todayStr)
-            .maybeSingle();
-        
-        final firstDayMonth = DateTime(now.year, now.month, 1).toIso8601String().split('T')[0];
-        final lastDayMonth = DateTime(now.year, now.month + 1, 0).toIso8601String().split('T')[0];
-        
-        final monthRes = await SupabaseConfig.client
-            .from('attendance_logs')
-            .select()
-            .eq('employee_id', _employeeId as String)
-            .gte('date', firstDayMonth)
-            .lte('date', lastDayMonth);
-
-        final leaveRes = await SupabaseConfig.client
-            .from('leave_requests')
-            .select()
-            .eq('employee_id', _employeeId as String)
-            .eq('status', 'approved')
-            .gte('start_date', firstDayMonth)
-            .lte('end_date', lastDayMonth);
-
-        final holidayRes = await SupabaseConfig.client
-            .from('holidays')
-            .select()
-            .gte('holiday_date', firstDayMonth)
-            .lte('holiday_date', lastDayMonth);
-
-        _monthlyLogs = (monthRes as List?) ?? [];
-        final List<dynamic> leaves = (leaveRes as List?) ?? [];
-        final List<dynamic> holidays = (holidayRes as List?) ?? [];
-        _todayLog = todayRes;
-
-        // Calculate Stats
-        _leaves = leaves;
-        _holidays = holidays;
-        _calculateStats(leaves, holidays);
-
-        if (mounted) setState(() => _isLoading = false);
       }
     } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
+      debugPrint('Profile load error: $e');
     }
   }
 
-  void _calculateStats(List<dynamic> leaves, List<dynamic> holidays) {
-    final now = DateTime.now();
-    _presentCount = _monthlyLogs.length;
-    _leaveCount = leaves.length;
+  Future<void> _loadTodayAttendance() async {
+    if (_employeeId == null) return;
+    try {
+      final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final todayRes = await SupabaseConfig.client
+          .from('attendance_logs')
+          .select()
+          .eq('employee_id', _employeeId!)
+          .eq('date', todayStr)
+          .maybeSingle();
 
-    int absents = 0;
-    for (int day = 1; day <= now.day; day++) {
-      final d = DateTime(now.year, now.month, day);
-      if (d.weekday != DateTime.sunday) {
-        final dStr = DateFormat('yyyy-MM-dd').format(d);
-        bool hasLog = _monthlyLogs.any((l) => l['date'] == dStr);
-        bool hasHoliday = holidays.any((h) => h['holiday_date'] == dStr);
-        bool hasLeave = leaves.any((l) {
-          DateTime s = DateTime.parse(l['start_date']);
-          DateTime e = DateTime.parse(l['end_date']);
-          return d.isAfter(s.subtract(const Duration(days: 1))) && d.isBefore(e.add(const Duration(days: 1)));
-        });
-        
-        if (!hasLog && !hasLeave && !hasHoliday && d.isBefore(now.subtract(const Duration(days: 0)))) {
-           final isToday = d.day == now.day && d.month == now.month && d.year == now.year;
-           if (!isToday) absents++;
+      if (todayRes != null) {
+        _todayLog = todayRes;
+        _punchInTime = DateTime.parse(todayRes['check_in']).toLocal();
+        _isPunchedIn = true;
+        if (todayRes['check_out'] != null) {
+          _punchOutTime = DateTime.parse(todayRes['check_out']).toLocal();
+          _isPunchedOut = true;
+        } else {
+          _isPunchedOut = false;
+        }
+      } else {
+        _isPunchedIn = false;
+        _isPunchedOut = false;
+        _todayLog = null;
+      }
+    } catch (e) {
+      debugPrint('Today attendance error: $e');
+    }
+  }
+
+  Future<void> _loadMonthAttendance() async {
+    if (_employeeId == null) return;
+    try {
+      final now = DateTime.now();
+      final firstDayMonth = DateTime(now.year, now.month, 1).toIso8601String().split('T')[0];
+      final lastDayMonth = DateTime(now.year, now.month + 1, 0).toIso8601String().split('T')[0];
+
+      final results = await Future.wait([
+        SupabaseConfig.client.from('attendance_logs').select().eq('employee_id', _employeeId!).gte('date', firstDayMonth).lte('date', lastDayMonth),
+        SupabaseConfig.client.from('leave_requests').select().eq('employee_id', _employeeId!).eq('status', 'approved').gte('start_date', firstDayMonth).lte('end_date', lastDayMonth),
+        SupabaseConfig.client.from('holidays').select().gte('holiday_date', firstDayMonth).lte('holiday_date', lastDayMonth),
+      ]);
+
+      _monthlyLogs = results[0] as List;
+      _leaves = results[1] as List;
+      _holidays = results[2] as List;
+
+      _attendanceMap.clear();
+      for (var log in _monthlyLogs) {
+        final date = DateTime.parse(log['date']);
+        _attendanceMap[DateTime(date.year, date.month, date.day)] = {...log, 'status': 'present'};
+      }
+      for (var leave in _leaves) {
+        DateTime s = DateTime.parse(leave['start_date']);
+        DateTime e = DateTime.parse(leave['end_date']);
+        for (int i = 0; i <= e.difference(s).inDays; i++) {
+          final date = s.add(Duration(days: i));
+          final key = DateTime(date.year, date.month, date.day);
+          if (!_attendanceMap.containsKey(key)) {
+            _attendanceMap[key] = {...leave, 'status': 'leave'};
+          }
         }
       }
+      for (var holiday in _holidays) {
+        final date = DateTime.parse(holiday['holiday_date']);
+        final key = DateTime(date.year, date.month, date.day);
+        if (!_attendanceMap.containsKey(key)) {
+          _attendanceMap[key] = {...holiday, 'status': 'holiday'};
+        }
+      }
+    } catch (e) {
+      debugPrint('Month attendance error: $e');
     }
-    _absentCount = absents;
+  }
+
+  void _calculateStats() {
+    final now = DateTime.now();
+    _presentCount = _monthlyLogs.length;
+    
+    int pastDays = 0;
+    for (int i = 1; i < now.day; i++) {
+        final d = DateTime(now.year, now.month, i);
+        if (d.weekday != DateTime.sunday) pastDays++;
+    }
+
+    int leavesCount = _attendanceMap.values.where((v) => v['status'] == 'leave').length;
+    int holidaysCount = _attendanceMap.values.where((v) => v['status'] == 'holiday' && DateTime.parse(v['holiday_date']).day < now.day).length;
+    
+    _absentCount = (pastDays - _presentCount - leavesCount - holidaysCount).clamp(0, 31);
 
     double totalHrs = 0;
     for (var log in _monthlyLogs) {
@@ -185,7 +234,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   Future<void> _handlePunch() async {
-    if (_selectedOffice == null && _todayLog?['check_in'] == null) {
+    if (_selectedOffice == null && !_isPunchedIn) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please select your office first'), backgroundColor: Colors.orange));
       return;
     }
@@ -195,8 +244,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
     
-    // Check range
-    if (_todayLog == null) {
+    if (!_isPunchedIn) {
       final targetOffice = _offices[_selectedOffice];
       double distance = Geolocator.distanceBetween(
         position.latitude, position.longitude,
@@ -213,11 +261,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
 
     try {
-      final nowStr = DateTime.now().toUtc().toIso8601String();
-      final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      bool isSunday = DateTime.now().weekday == DateTime.sunday;
+      final now = DateTime.now();
+      final nowStr = now.toUtc().toIso8601String();
+      final todayStr = DateFormat('yyyy-MM-dd').format(now);
+      bool isSunday = now.weekday == DateTime.sunday;
 
-      if (_todayLog == null) {
+      if (!_isPunchedIn) {
         if (isSunday && _workLocation == 'Main Office') {
           await SupabaseConfig.client.from('sunday_punch_requests').insert({
             'employee_id': _employeeId,
@@ -227,24 +276,37 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             'lng': position.longitude,
             'status': 'pending'
           });
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sunday attendance submitted for HR approval"), backgroundColor: Colors.green));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sunday attendance submitted for approval"), backgroundColor: Colors.green));
         } else {
-          await SupabaseConfig.client.from('attendance_logs').insert({
+          final res = await SupabaseConfig.client.from('attendance_logs').insert({
             'employee_id': _employeeId,
             'check_in': nowStr,
             'lat': position.latitude,
             'lng': position.longitude,
             'date': todayStr,
             'status': 'present'
+          }).select().single();
+          
+          setState(() {
+            _isPunchedIn = true;
+            _isPunchedOut = false;
+            _punchInTime = now;
+            _todayLog = res;
           });
+          _startTimer();
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Punched in successfully"), backgroundColor: Colors.green));
         }
       } else {
         await SupabaseConfig.client.from('attendance_logs').update({'check_out': nowStr}).eq('id', _todayLog!['id']);
+        setState(() {
+          _isPunchedOut = true;
+          _punchOutTime = now;
+        });
+        _stopTimer();
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Punched out successfully"), backgroundColor: Colors.green));
       }
-
-      await _fetchAttendanceData();
+      await _loadMonthAttendance();
+      _calculateStats();
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Failed to save punch log"), backgroundColor: Colors.red));
     }
@@ -252,7 +314,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
@@ -270,7 +332,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
-            if (_todayLog == null) ...[
+            if (!_isPunchedIn) ...[
               const Text("Select Office Location", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
               const SizedBox(height: 12),
               Row(
@@ -283,38 +345,65 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               const SizedBox(height: 24),
             ],
 
+            if (!_isPunchedIn || !_isPunchedOut) 
             Container(
               padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)]),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]),
               child: Column(
                 children: [
-                  Text(_todayLog?['check_in'] != null ? "Working Today" : "Not Punched In", style: const TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w500)),
+                  Text(_isPunchedIn ? "Working Today" : "Not Punched In", style: const TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w500)),
                   const SizedBox(height: 8),
                   Text(
-                    _currentTimeStr,
-                    style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Color(0xFF1B2E4B)),
+                    _isPunchedIn ? _timerDisplay : "--:--:--",
+                    style: TextStyle(
+                      fontSize: 48, 
+                      fontWeight: FontWeight.bold, 
+                      color: _isPunchedIn ? const Color(0xFFD32F2F) : const Color(0xFF1B2E4B)
+                    ),
                   ),
-                  if (_todayLog?['check_in'] != null) 
+                  if (_isPunchedIn) 
                     Text(
-                      "Punched at: ${DateFormat('hh:mm a').format(DateTime.parse(_todayLog!['check_in']).toLocal())}",
+                      "Punched at: ${DateFormat('hh:mm a').format(_punchInTime!)}",
                       style: TextStyle(fontSize: 14, color: Colors.blue.shade700, fontWeight: FontWeight.bold),
                     ),
                   const SizedBox(height: 24),
                   SizedBox(
                     width: double.infinity,
                     height: 52,
-                    child: ElevatedButton(
-                      onPressed: (_todayLog?['check_out'] != null) ? null : _handlePunch,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _todayLog?['check_in'] == null ? const Color(0xFF1B2E4B) : Colors.red.shade600,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      ),
-                      child: Text(
-                        _todayLog?['check_out'] != null ? "Punch Completed" : (_todayLog?['check_in'] == null ? "Punch In" : "Punch Out"),
+                    child: ElevatedButton.icon(
+                      onPressed: _handlePunch,
+                      icon: Icon(_isPunchedIn ? Icons.logout : Icons.login, color: Colors.white),
+                      label: Text(
+                        _isPunchedIn ? "Punch Out" : "Punch In",
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isPunchedIn ? const Color(0xFFD32F2F) : const Color(0xFF2E7D32),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                       ),
                     ),
                   ),
+                ],
+              ),
+            ),
+
+            if (_isPunchedIn && _isPunchedOut)
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(20), border: Border.all(color: Colors.green.shade200)),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.green, size: 40),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text("Attendance Completed", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.green)),
+                        Text("In: ${DateFormat('hh:mm a').format(_punchInTime!)}  Out: ${DateFormat('hh:mm a').format(_punchOutTime!)}", style: TextStyle(color: Colors.green.shade700, fontSize: 13)),
+                      ],
+                    ),
+                  )
                 ],
               ),
             ),
@@ -329,7 +418,6 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               ],
             ),
             const SizedBox(height: 24),
-
             const Align(
               alignment: Alignment.centerLeft,
               child: Text("Monthly Calendar", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF333333))),
@@ -402,62 +490,40 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
           if (index < startOffset) return const SizedBox();
           final day = index - startOffset + 1;
           final date = DateTime(now.year, now.month, day);
-          final dateStr = DateFormat('yyyy-MM-dd').format(date);
+          final key = DateTime(date.year, date.month, date.day);
           
-          final log = _monthlyLogs.firstWhere((l) => l['date'] == dateStr, orElse: () => null);
-          final holiday = _holidays.firstWhere((h) => h['holiday_date'] == dateStr, orElse: () => null);
-          final leave = _leaves.firstWhere((l) {
-            DateTime s = DateTime.parse(l['start_date']);
-            DateTime e = DateTime.parse(l['end_date']);
-            return date.isAfter(s.subtract(const Duration(days: 1))) && date.isBefore(e.add(const Duration(days: 1)));
-          }, orElse: () => null);
+          final record = _attendanceMap[key];
           
-          bool isSunday = date.weekday == DateTime.sunday;
           bool isToday = day == now.day && now.month == date.month && now.year == date.year;
           bool isFuture = date.isAfter(DateTime(now.year, now.month, now.day));
+          bool isSunday = date.weekday == DateTime.sunday;
 
-          Color cellColor = Colors.transparent;
-          Color textColor = Colors.black87;
           Color dotColor = Colors.transparent;
-          BoxBorder? border;
-
-          if (isToday) {
-            border = Border.all(color: Colors.blue.shade700, width: 2);
-            textColor = Colors.blue.shade700;
-          }
-
-          if (log != null) {
-            dotColor = log['check_out'] != null ? Colors.green : Colors.orange; // present or partial
-          } else if (leave != null) {
-            dotColor = Colors.orange; // leave
-          } else if (holiday != null) {
-            dotColor = Colors.blue; // holiday
-          } else if (isSunday) {
-            textColor = Colors.black38;
-            dotColor = Colors.grey; // weekend
-          } else if (!isFuture && !isToday) {
-            dotColor = Colors.red; // absent
+          if (record != null) {
+            switch (record['status']) {
+              case 'present': dotColor = const Color(0xFF2E7D32); break;
+              case 'leave': dotColor = const Color(0xFFE65100); break;
+              case 'holiday': dotColor = const Color(0xFF1565C0); break;
+            }
+          } else if (!isFuture && !isToday && !isSunday) {
+            dotColor = const Color(0xFFD32F2F); // absent
           }
 
           return GestureDetector(
-            onTap: () {
-              if (log != null) {
-                 _showLogDetails(log);
-              } else if (!isFuture && !isSunday && leave == null && holiday == null && !isToday) {
-                 _showAbsentDetails(dateStr);
-              }
-            },
+            onTap: () => _handleDateTap(date, record),
             child: Container(
               margin: const EdgeInsets.all(2),
               decoration: BoxDecoration(
-                color: cellColor,
                 borderRadius: BorderRadius.circular(8),
-                border: border,
+                border: isToday ? Border.all(color: Colors.blue.shade700, width: 2) : null,
               ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                   Text("$day", style: TextStyle(fontWeight: isToday ? FontWeight.bold : FontWeight.w500, color: textColor)),
+                   Text("$day", style: TextStyle(
+                     fontWeight: isToday ? FontWeight.bold : FontWeight.w500,
+                     color: isToday ? Colors.blue.shade700 : (isSunday ? Colors.grey : Colors.black87)
+                   )),
                    if (dotColor != Colors.transparent) ...[
                      const SizedBox(height: 4),
                      Container(width: 6, height: 6, decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
@@ -471,102 +537,162 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     );
   }
 
-  Widget _buildHistoryList() {
-    if (_monthlyLogs.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(24),
-        width: double.infinity,
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-        child: const Center(child: Text("No history available for this month")),
-      );
-    }
+  void _handleDateTap(DateTime date, Map<String, dynamic>? record) {
+    final now = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    if (date.isAfter(now)) return;
 
-    final sortedLogs = List.from(_monthlyLogs)..sort((a,b) => b['date'].compareTo(a['date']));
-
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: sortedLogs.length,
-      itemBuilder: (context, index) {
-        final log = sortedLogs[index];
-        final cIn = DateTime.parse(log['check_in']).toLocal();
-        final cOut = log['check_out'] != null ? DateTime.parse(log['check_out']).toLocal() : null;
-        
-        return Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8)]),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(DateFormat('dd MMM yyyy').format(DateTime.parse(log['date'])), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  const SizedBox(height: 4),
-                  Text("${DateFormat('hh:mm a').format(cIn)} - ${cOut != null ? DateFormat('hh:mm a').format(cOut) : 'Working'}", style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-                ],
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(color: cOut != null ? Colors.green.shade50 : Colors.orange.shade50, borderRadius: BorderRadius.circular(8)),
-                child: Text(cOut != null ? "Present" : "Partial", style: TextStyle(color: cOut != null ? Colors.green.shade700 : Colors.orange.shade700, fontWeight: FontWeight.bold, fontSize: 12)),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  void _showAbsentDetails(String date) {
-     showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.info_outline, color: Colors.red, size: 48),
-            const SizedBox(height: 16),
-            const Text("Absent", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.red)),
-            const SizedBox(height: 8),
-            Text("No attendance record found for $date.", style: const TextStyle(color: Colors.black54)),
-            const SizedBox(height: 12),
-            const Text("If you were on leave, please ensure your leave request was approved.", textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.grey)),
-            const SizedBox(height: 24),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showLogDetails(Map<String, dynamic> log) {
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (context) {
-        final cIn = DateTime.parse(log['check_in']).toLocal();
-        final cOut = log['check_out'] != null ? DateTime.parse(log['check_out']).toLocal() : null;
-        String duration = cOut != null ? "${cOut.difference(cIn).inHours}h ${cOut.difference(cIn).inMinutes % 60}m" : "Logged In";
+        Widget content;
+        if (record == null) {
+          content = const Column(
+            children: [
+              Icon(Icons.info_outline, color: Colors.red, size: 48),
+              SizedBox(height: 16),
+              Text("No Attendance Record", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              SizedBox(height: 8),
+              Text("You were marked as absent for this day."),
+            ],
+          );
+        } else if (record['status'] == 'present') {
+          final cIn = DateTime.parse(record['check_in']).toLocal();
+          final cOut = record['check_out'] != null ? DateTime.parse(record['check_out']).toLocal() : null;
+          content = Column(
+            children: [
+              const Icon(Icons.check_circle, color: Color(0xFF2E7D32), size: 48),
+              const SizedBox(height: 16),
+              const Text("Present", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF2E7D32))),
+              const SizedBox(height: 16),
+              _row("Check In", DateFormat('hh:mm a').format(cIn)),
+              _row("Check Out", cOut != null ? DateFormat('hh:mm a').format(cOut) : "--:--"),
+              if (cOut != null) _row("Duration", "${cOut.difference(cIn).inHours}h ${cOut.difference(cIn).inMinutes % 60}m"),
+            ],
+          );
+        } else if (record['status'] == 'leave') {
+          content = Column(
+            children: [
+              const Icon(Icons.event_note, color: Color(0xFFE65100), size: 48),
+              const SizedBox(height: 16),
+              const Text("On Leave", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFE65100))),
+              const SizedBox(height: 16),
+              _row("Type", record['leave_type'] ?? "Other"),
+              _row("Reason", record['reason'] ?? "--"),
+              _row("Approved", "Yes"),
+            ],
+          );
+        } else if (record['status'] == 'holiday') {
+          content = Column(
+            children: [
+              const Icon(Icons.celebration, color: Color(0xFF1565C0), size: 48),
+              const SizedBox(height: 16),
+              const Text("Public Holiday", style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1565C0))),
+              const SizedBox(height: 16),
+              _row("Occasion", record['holiday_name'] ?? "Holiday"),
+            ],
+          );
+        } else {
+           content = const SizedBox();
+        }
 
         return Container(
           padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            content,
+            const SizedBox(height: 24),
+          ]),
+        );
+      },
+    );
+  }
+
+  Widget _buildHistoryList() {
+    final now = DateTime.now();
+    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+    final List<DateTime> pastDays = [];
+    for (int i = now.day; i >= 1; i--) {
+      pastDays.add(DateTime(now.year, now.month, i));
+    }
+
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: pastDays.length,
+      itemBuilder: (context, index) {
+        final date = pastDays[index];
+        final record = _attendanceMap[date];
+        final isSunday = date.weekday == DateTime.sunday;
+        
+        if (isSunday && record == null) return const SizedBox();
+
+        String title = "Absent";
+        String subtitle = "No record found";
+        Widget statusChip = _buildStatusChip("Absent", const Color(0xFFD32F2F));
+
+        if (record != null) {
+          if (record['status'] == 'present') {
+            final cIn = DateTime.parse(record['check_in']).toLocal();
+            final cOut = record['check_out'] != null ? DateTime.parse(record['check_out']).toLocal() : null;
+            title = "IN: ${DateFormat('hh:mm a').format(cIn)}";
+            if (cOut != null) {
+               title += "  OUT: ${DateFormat('hh:mm a').format(cOut)}";
+               final diff = cOut.difference(cIn);
+               subtitle = "${diff.inHours}h ${diff.inMinutes % 60}m duration";
+            } else {
+               subtitle = "Currently working";
+            }
+            statusChip = _buildStatusChip("Present", const Color(0xFF2E7D32));
+          } else if (record['status'] == 'leave') {
+            title = "On Leave";
+            subtitle = record['leave_type'] ?? "Casual Leave";
+            statusChip = _buildStatusChip("Leave", const Color(0xFFE65100));
+          } else if (record['status'] == 'holiday') {
+            title = "Public Holiday";
+            subtitle = record['holiday_name'] ?? "Holiday";
+            statusChip = _buildStatusChip("Holiday", const Color(0xFF1565C0));
+          }
+        }
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 8)]),
+          child: Row(
             children: [
-              const Text("Attendance Details", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 16),
-              _row("Date", log['date']),
-              _row("Check In", DateFormat('hh:mm a').format(cIn)),
-              _row("Check Out", cOut != null ? DateFormat('hh:mm a').format(cOut) : "--:--"),
-              _row("Duration", duration),
-              const SizedBox(height: 24),
+              Container(
+                width: 45,
+                child: Column(
+                  children: [
+                    Text(DateFormat('dd').format(date), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                    Text(DateFormat('MMM').format(date).toUpperCase(), style: const TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    const SizedBox(height: 2),
+                    Text(subtitle, style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                  ],
+                ),
+              ),
+              statusChip,
             ],
           ),
         );
       },
+    );
+  }
+
+  Widget _buildStatusChip(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
+      child: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 11)),
     );
   }
 
@@ -575,3 +701,4 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(l, style: const TextStyle(color: Colors.grey)), Text(v, style: const TextStyle(fontWeight: FontWeight.bold))]),
   );
 }
+

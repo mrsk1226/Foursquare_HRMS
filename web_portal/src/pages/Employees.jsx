@@ -828,8 +828,23 @@ const Employees = () => {
 
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Manager</label>
-                      <input type="text" name="manager" value={formData.manager} onChange={handleInputChange} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-[#1E3A5F] focus:border-[#1E3A5F]" />
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Reporting Manager</label>
+                      <select 
+                        name="manager" 
+                        value={formData.manager} 
+                        onChange={handleInputChange} 
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-[#1E3A5F] focus:border-[#1E3A5F] bg-white text-sm"
+                      >
+                        <option value="">No Manager Assigned</option>
+                        {(employees || [])
+                          .filter(e => e.status === 'active' && e.employee_id !== formData.employee_id)
+                          .map(e => (
+                            <option key={e.employee_id} value={e.employee_id}>
+                              {e.full_name} ({e.employee_id})
+                            </option>
+                          ))
+                        }
+                      </select>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Emergency Contact</label>
@@ -874,7 +889,7 @@ const Employees = () => {
                          </div>
                          
                          <div className="bg-blue-50 text-blue-800 p-4 rounded-lg mb-6 text-sm flex items-start gap-3">
-                            <span className="text-lg">💡</span>
+                            <span className="text-lg">ðŸ’¡</span>
                             <div>
                                <p className="font-bold">Important Step:</p>
                                <p>1. First, manually create the user account in the <b>Supabase Dashboard</b> using the email below.</p>
@@ -925,7 +940,7 @@ const Employees = () => {
 
                     {!editingId && (
                        <div className="bg-blue-50 text-blue-800 p-4 rounded-xl border border-blue-200 shadow-sm flex items-center gap-3">
-                         <span className="text-xl">ℹ️</span>
+                         <span className="text-xl">â„¹ï¸</span>
                          <span className="text-sm font-medium">To upload documents for a new employee, make sure Full Name, Email, and Employee ID are filled. The system will auto-save before uploading.</span>
                        </div>
                     )}
@@ -1194,7 +1209,7 @@ const Employees = () => {
                                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Account Number</p>
                                <p className="font-mono text-lg text-gray-900 tracking-wider">
                                  {viewingEmp.bank_account ? 
-                                  '•'.repeat(Math.max(0, viewingEmp.bank_account.length - 4)) + viewingEmp.bank_account.slice(-4) 
+                                  'â€¢'.repeat(Math.max(0, viewingEmp.bank_account.length - 4)) + viewingEmp.bank_account.slice(-4) 
                                   : '----'}
                                </p>
                             </div>
