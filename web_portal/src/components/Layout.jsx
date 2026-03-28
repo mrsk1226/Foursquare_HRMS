@@ -3,6 +3,7 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import TopNavbar from './TopNavbar';
 import Sidebar from './Sidebar';
+import Breadcrumb from './Breadcrumb';
 import { Toaster } from 'react-hot-toast';
 
 export const ProtectedRoute = () => {
@@ -39,6 +40,7 @@ export const ProtectedRoute = () => {
         <TopNavbar />
         
         <main className="flex-1 overflow-auto p-6 bg-[#F5F6FA]">
+          <Breadcrumb />
           <Outlet />
         </main>
       </div>

@@ -12,7 +12,6 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
-  late Animation<double> _logoScale;
   late Animation<double> _logoOpacity;
   late Animation<double> _textOpacity;
   late Animation<double> _progressValue;
@@ -21,43 +20,35 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   void initState() {
     super.initState();
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 2800),
+      duration: const Duration(milliseconds: 3000),
       vsync: this,
     );
 
-    // 0ms to 700ms: Logo Scale and Opacity
-    _logoScale = Tween<double>(begin: 0.7, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _controller,
-        curve: const Interval(0.0, 0.25, curve: Curves.easeOutCubic),
-      ),
-    );
+    // sequential fade-in: logo (0% - 30%), text (40% - 60%)
     _logoOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0.0, 0.25, curve: Curves.easeIn),
+        curve: const Interval(0.0, 0.4, curve: Curves.easeIn),
       ),
     );
 
-    // 700ms to 1000ms: Text Fade In
     _textOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0.25, 0.357, curve: Curves.easeIn),
+        curve: const Interval(0.4, 0.7, curve: Curves.easeIn),
       ),
     );
 
-    // 1000ms to 2500ms: LinearProgressIndicator
+    // progress bar animation (20% - 90%)
     _progressValue = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0.357, 0.893, curve: Curves.linear),
+        curve: const Interval(0.2, 0.9, curve: Curves.linear),
       ),
     );
 
     _controller.forward();
-    
-    Future.delayed(const Duration(milliseconds: 2800), _checkSessionAndNavigate);
+    Future.delayed(const Duration(milliseconds: 3200), _checkSessionAndNavigate);
   }
 
   void _checkSessionAndNavigate() {
@@ -66,7 +57,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         pageBuilder: (c, a, s) => session != null ? const MainScreen() : const LoginScreen(),
-        transitionDuration: const Duration(milliseconds: 600),
+        transitionDuration: const Duration(milliseconds: 700),
         transitionsBuilder: (c, a, s, child) => FadeTransition(opacity: a, child: child),
       ),
     );
@@ -81,48 +72,68 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: Stack(
-        children: [
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF0F172A),
+              Color(0xFF1B2E4B),
+              Color(0xFF0F172A),
+            ],
+          ),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
           Center(
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                AnimatedBuilder(
-                  animation: _controller,
-                  builder: (context, child) {
-                    return Opacity(
-                      opacity: _logoOpacity.value,
-                      child: Transform.scale(
-                        scale: _logoScale.value,
-                        child: child,
-                      ),
-                    );
-                  },
+                FadeTransition(
+                  opacity: _logoOpacity,
                   child: Image.asset(
-                    'assets/images/Four Square Logo blue.png',
-                    width: 180,
-                    height: 180,
+                    'assets/images/4 square White Colour.png',
+                    width: 100,
+                    height: 100,
+                    fit: BoxFit.contain,
                   ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 FadeTransition(
                   opacity: _textOpacity,
-                  child: const Text(
-                    'HRMS',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF1a2744),
-                      letterSpacing: 1.5,
-                    ),
+                  child: const Column(
+                    children: [
+                      Text(
+                        'FOURSQUARE HRMS',
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        'HRMS PORTAL',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.white70,
+                          letterSpacing: 2.0,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-          Align(
-            alignment: Alignment.bottomCenter,
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
             child: AnimatedBuilder(
               animation: _progressValue,
               builder: (context, child) {
@@ -130,13 +141,15 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                   value: _progressValue.value,
                   minHeight: 3,
                   color: const Color(0xFF1a2744),
-                  backgroundColor: const Color(0xFFE8EAF0),
+                  backgroundColor: const Color(0xFFF0F2F6),
                 );
               },
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
+

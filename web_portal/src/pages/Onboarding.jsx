@@ -1,14 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from '../lib/supabase_client';
-import { useAuth } from '../context/AuthContext';
-import toast from 'react-hot-toast';
 import { 
   CheckSquare, FileSpreadsheet, Plus, CheckCircle2, 
-  Clock, ShieldCheck, Mail, Users
+  Clock, ShieldCheck, Mail, Users, ArrowLeft
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import Breadcrumb from '../components/Breadcrumb';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase_client';
+import toast from 'react-hot-toast';
+
+
 
 const Onboarding = () => {
   const { profile } = useAuth();
+  const navigate = useNavigate();
+
   const isAdmin = profile?.role === 'admin';
   
   const [tasks, setTasks] = useState([]);
@@ -125,7 +131,16 @@ const Onboarding = () => {
     const progress = Math.round((completedTasks / totalTasks) * 100) || 0;
 
     return (
-      <div className="space-y-6 max-w-4xl mx-auto">
+      <div className="space-y-6 max-w-4xl mx-auto p-4">
+        <Breadcrumb items={[{ label: 'Onboarding', path: null }]} />
+        <button 
+          onClick={() => navigate('/dashboard')} 
+          className="group flex items-center text-xs font-black text-slate-400 hover:text-[#0f172a] transition-colors mb-2"
+        >
+          <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
+          BACK TO DASHBOARD
+        </button>
+
         <div>
           <h1 className="text-2xl font-bold text-[#1E3A5F]">My Onboarding Checklist</h1>
           <p className="text-gray-500 mt-1">Complete these tasks to finish your onboarding process.</p>
@@ -198,7 +213,16 @@ const Onboarding = () => {
 
   // == Admin View ==
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-8 max-w-7xl mx-auto">
+      <Breadcrumb items={[{ label: 'Onboarding', path: null }]} />
+      <button 
+        onClick={() => navigate('/dashboard')} 
+        className="group flex items-center text-xs font-black text-slate-400 hover:text-[#0f172a] transition-colors mb-2"
+      >
+        <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
+        BACK TO DASHBOARD
+      </button>
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-[#1E3A5F]">Onboarding Workflows</h1>

@@ -1,13 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import { CheckCircle2, Clock3, XCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { supabase } from '../lib/supabase_client';
 import { useAuth } from '../context/AuthContext';
+import { useLocation } from 'react-router-dom';
 
 const HR_EMPLOYEE_ID = 'FSQ002';
 
 export default function ManagerApprovals() {
+  const location = useLocation();
   const { profile } = useAuth();
   const [activeTab, setActiveTab] = useState('leaves');
   const [leaveRequests, setLeaveRequests] = useState([]);
@@ -18,14 +20,33 @@ export default function ManagerApprovals() {
   const [remarks, setRemarks] = useState('');
   const [action, setAction] = useState('approve');
   const [submitting, setSubmitting] = useState(false);
+  const [highlightId, setHighlightId] = useState(location.state?.highlightId || null);
 
   useEffect(() => {
     if (profile?.employee_id) {
       loadRequests();
     }
-  }, [profile?.employee_id]);
+  }, [loadRequests, profile?.employee_id]);
 
-  const loadRequests = async () => {
+  useEffect(() => {
+    if (location.state?.highlightId) {
+      setHighlightId(String(location.state.highlightId));
+    }
+  }, [location.state]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+
+    const row = document.querySelector(`[data-approval-row="${activeTab}-${highlightId}"]`);
+    if (!row) return;
+
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const timeoutId = window.setTimeout(() => setHighlightId(null), 4200);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [activeTab, highlightId, leaveRequests, permissionRequests]);
+
+  const loadRequests = useCallback(async () => {
     setLoading(true);
     try {
       const [leaveResponse, permissionResponse] = await Promise.all([
@@ -56,7 +77,7 @@ export default function ManagerApprovals() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [profile?.employee_id]);
 
   const sendNotification = async ({
     recipientId,
@@ -200,8 +221,13 @@ export default function ManagerApprovals() {
               {currentData.map((request) => (
                 <tr
                   key={`${activeTab}-${request.id}`}
+                  data-approval-row={`${activeTab}-${request.id}`}
                   onClick={() => openRequest(request, activeTab === 'leaves' ? 'leave' : 'permission')}
-                  className="cursor-pointer transition hover:bg-gray-50"
+                  className={`cursor-pointer transition ${
+                    String(request.id) === String(highlightId)
+                      ? 'bg-amber-50 shadow-[inset_0_0_0_1px_rgba(251,191,36,0.5)]'
+                      : 'hover:bg-gray-50'
+                  }`}
                 >
                   <td className="p-4">
                     <p className="font-bold text-[#1a2744]">{request.employees?.full_name || request.employee_id}</p>

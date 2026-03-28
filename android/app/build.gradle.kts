@@ -4,6 +4,10 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val kotlinVersion = "2.2.20"
+val androidMapsUtilsVersion = "4.1.0"
+val playServicesMapsVersion = "20.0.0"
+
 android {
     namespace = "com.example.foursquare_app"
     compileSdk = 36
@@ -35,13 +39,23 @@ android {
     configurations.all {
         resolutionStrategy.eachDependency {
             if (requested.group == "org.jetbrains.kotlin") {
-                useVersion("2.1.0")
+                useVersion(kotlinVersion)
             }
             if (requested.group == "androidx.core") {
                 useVersion("1.13.1")
             }
             if (requested.group == "androidx.browser" && requested.name == "browser") {
                 useVersion("1.8.0")
+            }
+            if (requested.group == "com.google.maps.android" &&
+                requested.name == "android-maps-utils"
+            ) {
+                useVersion(androidMapsUtilsVersion)
+            }
+            if (requested.group == "com.google.android.gms" &&
+                requested.name == "play-services-maps"
+            ) {
+                useVersion(playServicesMapsVersion)
             }
         }
     }

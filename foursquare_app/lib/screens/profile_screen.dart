@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../services/auth_service.dart';
 import '../services/supabase_config.dart';
 import 'login_screen.dart';
+import '../widgets/app_drawer.dart';
 
 class ProfileScreen extends StatefulWidget {
   final Function(int)? switchTab;
@@ -78,6 +79,10 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
 
     return Scaffold(
       backgroundColor: Colors.white,
+      drawer: AppDrawer(
+        selectedIndex: 4,
+        onItemSelected: (i) => widget.switchTab?.call(i),
+      ),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1B2E4B),
         title: const Text("My Profile", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),

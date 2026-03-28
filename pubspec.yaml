@@ -1,5 +1,5 @@
 name: mobile_app
-description: Foursquare HRMS Mobile App.
+description: FSQ HRMS mobile application.
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -45,6 +45,7 @@ flutter:
   assets:
     - assets/images/
     - assets/images/4 square White Colour.png
+    - assets/images/Four Square Logo blue.png
 
 dependency_overrides:
   sign_in_with_apple: ^6.1.1

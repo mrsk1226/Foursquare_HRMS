@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase_client';
 import { useAuth } from '../context/AuthContext';
-import { Star, Plus, CheckCircle, Search, Filter } from 'lucide-react';
+import { Star, Plus, CheckCircle, Search, Filter, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
 import toast from 'react-hot-toast';
 
 const StarRating = ({ rating, setRating, interactive = false }) => {
@@ -26,6 +28,8 @@ const StarRating = ({ rating, setRating, interactive = false }) => {
 
 export default function Performance() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
+
   const [reviews, setReviews] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -107,6 +111,14 @@ export default function Performance() {
 
   return (
     <div className="p-8">
+      <button 
+        onClick={() => navigate('/dashboard')} 
+        className="group flex items-center text-xs font-black text-slate-400 hover:text-[#0f172a] transition-colors mb-6"
+      >
+        <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
+        BACK TO DASHBOARD
+      </button>
+
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Performance</h1>

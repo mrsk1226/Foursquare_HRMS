@@ -1,16 +1,50 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import Breadcrumb from '../components/Breadcrumb';
 
 import { supabase } from '../lib/supabase_client';
+import { ArrowLeft } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
+import { EmptyStatePanel, TableSkeleton } from '../components/ui/LoadingSkeleton';
 import { 
   Users, Search, Plus, Edit, Trash2, X, Download, Filter, 
   ChevronLeft, ChevronRight, Upload, Building2, CreditCard, FileText, User, Eye, MapPin, Calendar, Clock, Briefcase, DownloadCloud,
-  CheckCircle2, XCircle, Lock
+  CheckCircle2, XCircle, Lock, Mail, Loader2
 } from 'lucide-react';
 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
+
+const getEmployeeValue = (employee, keys, fallback = '') => {
+  for (const key of keys) {
+    const value = employee?.[key];
+    if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+  return fallback;
+};
+
+const normalizeEmployeeRecord = (employee) => ({
+  ...employee,
+  id: getEmployeeValue(employee, ['id', 'employee_id']),
+  employee_id: String(getEmployeeValue(employee, ['employee_id', 'emp_id', 'code'], '')),
+  full_name: getEmployeeValue(employee, ['full_name', 'name', 'employee_name'], 'Employee'),
+  designation: getEmployeeValue(employee, ['designation', 'job_title', 'role_name'], ''),
+  department: getEmployeeValue(employee, ['department', 'dept_name'], ''),
+  status: String(getEmployeeValue(employee, ['status', 'employment_status'], 'active')).toLowerCase(),
+  photo_url: getEmployeeValue(employee, ['photo_url', 'avatar_url', 'profile_image_url'], ''),
+  email: getEmployeeValue(employee, ['email', 'work_email', 'personal_email'], ''),
+  phone: getEmployeeValue(employee, ['phone', 'mobile_number', 'phone_number'], ''),
+  dob: getEmployeeValue(employee, ['dob', 'date_of_birth', 'birth_date'], ''),
+});
+
+const FALLBACK_DEPARTMENTS = [
+  'Sales', 'Operations', 'Accounts', 'HR', 'Design',
+  'Production', 'Installation', 'Service', 'Procurement',
+  'Admin', 'Management'
+];
 
 const Employees = () => {
   const { profile } = useAuth();
@@ -20,6 +54,7 @@ const Employees = () => {
   const [employees, setEmployees] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [documents, setDocuments] = useState([]);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
 
@@ -96,45 +131,60 @@ const Employees = () => {
     }
   };
 
-  useEffect(() => {
-    fetchEmployees();
-    fetchDepartments();
-  }, []);
-
-  const fallbackDepartments = [
-    'Sales', 'Operations', 'Accounts', 'HR', 'Design', 
-    'Production', 'Installation', 'Service', 'Procurement', 
-    'Admin', 'Management'
-  ];
-
-  const fetchDepartments = async () => {
+  const fetchDepartments = useCallback(async () => {
     try {
       const { data, error } = await supabase.from('departments').select('name').order('name');
       if (!error && data && data.length > 0) {
         setDepartments(data.map(d => d.name));
       } else {
-        setDepartments(fallbackDepartments);
+        if (error) {
+          console.error('Departments query failed:', error);
+        }
+        setDepartments(FALLBACK_DEPARTMENTS);
       }
     } catch (err) {
-      setDepartments(fallbackDepartments);
+      console.error('Departments fetch failed:', err);
+      setDepartments(FALLBACK_DEPARTMENTS);
     }
-  };
+  }, []);
 
-  const fetchEmployees = async () => {
+  const fetchEmployees = useCallback(async () => {
+    setLoading(true);
+    setLoadError('');
     try {
-      const { data, error } = await supabase
+      let response = await supabase
         .from('employees')
         .select('*')
         .order('created_at', { ascending: false });
-        
-      if (error) throw error;
-      setEmployees(data || []);
+
+      if (response.error && /created_at/i.test(response.error.message || '')) {
+        console.error('Employees query failed when ordering by created_at, retrying with employee_id:', response.error);
+        response = await supabase
+          .from('employees')
+          .select('*')
+          .order('employee_id', { ascending: true });
+      }
+
+      if (response.error) {
+        console.error('Employees query failed:', response.error);
+        throw response.error;
+      }
+
+      setEmployees((response.data || []).map(normalizeEmployeeRecord));
     } catch (error) {
+      console.error('Failed to fetch employees:', error);
+      setEmployees([]);
+      setLoadError('Employee records could not be loaded from Supabase.');
       toast.error('Failed to fetch employees');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchEmployees();
+    fetchDepartments();
+  }, [fetchDepartments, fetchEmployees]);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -164,6 +214,7 @@ const Employees = () => {
       setFormData(prev => ({ ...prev, photo_url: data.publicUrl }));
       toast.success('Photo uploaded locally, save to apply', { id: toastId });
     } catch (err) {
+      console.error('Employee photo upload failed:', err);
       toast.error('Failed to upload photo', { id: toastId });
     } finally {
       setIsUploadingImage(false);
@@ -188,7 +239,10 @@ const Employees = () => {
     try {
       const { data } = await supabase.from('documents').select('*').eq('employee_id', emp.employee_id);
       setDocuments(data || []);
-    } catch(e) {}
+    } catch (error) {
+      console.error('Failed to fetch employee documents:', error);
+      setDocuments([]);
+    }
   };
 
   const autoSaveEmployee = async () => {
@@ -265,7 +319,6 @@ const Employees = () => {
       const uploadedRecords = [];
 
       for (const file of files) {
-        const fileExt = file.name.split('.').pop();
         const safeDocType = docCategory.replace(/[^a-zA-Z0-9]/g, '');
         // Path: employeeId/docType/filename
         const fileName = `${formData.employee_id}/${safeDocType}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-_]/g, '')}`;
@@ -297,6 +350,7 @@ const Employees = () => {
       const { data: updatedDocs } = await supabase.from('documents').select('*').eq('employee_id', formData.employee_id);
       setDocuments(updatedDocs || []);
     } catch (err) {
+      console.error('Employee document upload failed:', err);
       toast.error(`Upload failed: ${err.message}`, { id: toastId });
     } finally {
       setActiveDocCategory(null);
@@ -318,6 +372,7 @@ const Employees = () => {
       setDocuments(prev => prev.filter(d => d.id !== docId));
       toast.success('Document deleted');
     } catch (err) {
+      console.error('Failed to delete document:', err);
       toast.error('Failed to delete document');
     }
   };
@@ -330,6 +385,7 @@ const Employees = () => {
         toast.success(`${name} deleted successfully`);
         fetchEmployees();
       } catch (error) {
+        console.error('Failed to delete employee:', error);
         toast.error('Error deleting employee');
       }
     }
@@ -374,6 +430,7 @@ const Employees = () => {
       setIsModalOpen(false);
       fetchEmployees();
     } catch (error) {
+      console.error('Failed to save employee:', error);
       toast.error(error.message || 'Failed to save employee');
     }
   };
@@ -468,13 +525,11 @@ const Employees = () => {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
       toast.success('Export completed successfully', { id: toastId });
     } catch (err) {
       toast.error('Export failed: ' + err.message, { id: toastId });
     }
   };
-
 
   // Filter Logic
   const filteredEmployees = employees.filter(emp => {
@@ -495,12 +550,20 @@ const Employees = () => {
     { id: 'Documents', icon: FileText }
   ];
 
+  const navigate = useNavigate();
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto w-full">
+    <div className="space-y-6 max-w-7xl mx-auto w-full p-4">
+      <Breadcrumb items={[{ label: 'Employees', path: null }]} />
+      <button 
+        onClick={() => navigate('/dashboard')} 
+        className="group flex items-center text-xs font-black text-slate-400 hover:text-[#0f172a] transition-colors mb-2"
+      >
+        <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
+        BACK TO DASHBOARD
+      </button>
+
       <div>
-        <div className="text-sm text-gray-400 mb-2">
-          <span>Home</span> <span className="mx-1">&gt;</span> <span className="text-gray-700 font-semibold">Employee</span>
-        </div>
         <div className="flex items-center justify-between pb-3 border-b border-gray-200">
           <div className="flex space-x-6">
             <button className="text-[#1E3A5F] font-bold border-b-2 border-[#1E3A5F] pb-3 -mb-[13px]">Employee Directory</button>
@@ -508,7 +571,7 @@ const Employees = () => {
             <button className="text-gray-500 font-medium hover:text-gray-700 pb-3">Reports</button>
           </div>
           <div className="flex gap-3">
-            <button 
+             <button 
               onClick={handleExportCSV}
               className="flex items-center px-4 py-1.5 bg-white border border-gray-300 rounded text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
             >
@@ -526,7 +589,6 @@ const Employees = () => {
         </div>
       </div>
 
-      {/* Filters Bar */}
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
         <div className="relative flex-1 max-w-md">
           <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -559,30 +621,36 @@ const Employees = () => {
 
       {/* Table */}
       <div className="bg-white rounded border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm whitespace-nowrap">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200 font-semibold text-gray-600">
-                <th className="py-3 px-4 w-12 text-center text-gray-400">#</th>
-                <th className="py-3 px-4">Employee Name</th>
-                <th className="py-3 px-4">Employee ID</th>
-                <th className="py-3 px-4">Designation</th>
-                <th className="py-3 px-4">Department</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan="7" className="p-8 text-center text-gray-400">Loading employees...</td>
+        {loading ? (
+          <div className="p-4">
+            <TableSkeleton columns={7} rows={6} />
+          </div>
+        ) : filteredEmployees.length === 0 ? (
+          <div className="p-6">
+            <EmptyStatePanel
+              icon={Users}
+              title={employees.length === 0 ? 'No employees available' : 'No employees match these filters'}
+              description={loadError || (employees.length === 0
+                ? 'Add an employee or verify the Supabase employee records to populate this directory.'
+                : 'Try changing the search, department, or status filters to see more employees.')}
+            />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm whitespace-nowrap">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200 font-semibold text-gray-600">
+                  <th className="py-3 px-4 w-12 text-center text-gray-400">#</th>
+                  <th className="py-3 px-4">Employee Name</th>
+                  <th className="py-3 px-4">Employee ID</th>
+                  <th className="py-3 px-4">Designation</th>
+                  <th className="py-3 px-4">Department</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-center">Actions</th>
                 </tr>
-              ) : filteredEmployees.length === 0 ? (
-                <tr>
-                  <td colSpan="7" className="p-8 text-center text-gray-400">No employees found.</td>
-                </tr>
-              ) : (
-                filteredEmployees.map((emp, idx) => (
+              </thead>
+              <tbody>
+                {filteredEmployees.map((emp, idx) => (
                   <tr key={emp.id} className="border-b border-gray-100 hover:bg-blue-50/50 transition-colors group cursor-pointer" onClick={() => openViewModal(emp)}>
                     <td className="py-3 px-4 text-center text-gray-400 text-xs">{idx + 1}</td>
                     <td className="py-3 px-4 flex items-center gap-3">
@@ -595,7 +663,7 @@ const Employees = () => {
                       </div>
                       <div className="font-semibold text-gray-800">{emp.full_name}</div>
                     </td>
-                    <td className="py-3 px-4 text-gray-600">{emp.employee_id}</td>
+                    <td className="py-3 px-4 text-gray-600">{emp.employee_id || '-'}</td>
                     <td className="py-3 px-4 text-gray-600">{emp.designation || '-'}</td>
                     <td className="py-3 px-4 text-gray-600">{emp.department || '-'}</td>
                     <td className="py-3 px-4">
@@ -619,11 +687,11 @@ const Employees = () => {
                       )}
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Modal */}

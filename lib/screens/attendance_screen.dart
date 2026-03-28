@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:geolocator/geolocator.dart';
 import '../services/supabase_config.dart';
 import '../services/permission_service.dart';
+import '../widgets/app_drawer.dart';
 
 class AttendanceScreen extends StatefulWidget {
   final Function(int)? switchTab;
@@ -28,13 +30,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   // Office Data
   final Map<String, dynamic> _offices = {
     'Main Office': {
-      'lat': 11.3292918,
-      'lng': 77.7007555,
+      'position': const LatLng(11.3292918, 77.7007555),
       'radius': 100.0,
     },
     'Showroom': {
-      'lat': 11.3319983,
-      'lng': 77.7012905,
+      'position': const LatLng(11.3319983, 77.7012905),
       'radius': 50.0,
     },
   };
@@ -139,10 +139,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     
     // Check range
     if (_todayLog == null) {
-      final targetOffice = _offices[_selectedOffice];
+      final targetOffice =
+          _offices[_selectedOffice] as Map<String, dynamic>;
+      final officePosition = targetOffice['position'] as LatLng;
       double distance = Geolocator.distanceBetween(
         position.latitude, position.longitude,
-        targetOffice['lat'], targetOffice['lng']
+        officePosition.latitude, officePosition.longitude,
       );
 
       if (distance > targetOffice['radius']) {
@@ -198,7 +200,17 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
+      drawer: const AppDrawer(selectedIndex: 2),
+      drawerEnableOpenDragGesture: true,
+      drawerEdgeDragWidth: 28,
       appBar: AppBar(
+        leading: Builder(
+          builder: (context) => IconButton(
+            tooltip: 'Open menu',
+            icon: const Icon(Icons.menu_rounded, color: Colors.white),
+            onPressed: () => Scaffold.of(context).openDrawer(),
+          ),
+        ),
         title: const Text('Attendance', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFF1B2E4B),
         elevation: 0,

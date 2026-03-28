@@ -1,14 +1,18 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'supabase_config.dart';
 
 class AuthService {
-  final SupabaseClient _client = SupabaseConfig.client;
+  final supabase.SupabaseClient _client = SupabaseConfig.client;
 
-  User? get currentUser => _client.auth.currentUser;
+  supabase.User? get currentUser => _client.auth.currentUser;
 
-  Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
+  Stream<supabase.AuthState> get authStateChanges =>
+      _client.auth.onAuthStateChange;
 
-  Future<AuthResponse> signInWithEmailPassword(String email, String password) async {
+  Future<supabase.AuthResponse> signInWithEmailPassword(
+    String email,
+    String password,
+  ) async {
     try {
       print('DEBUG: Attempting login for email: $email');
       final response = await _client.auth.signInWithPassword(
@@ -19,7 +23,7 @@ class AuthService {
       return response;
     } catch (e) {
       print('DEBUG: Login error: $e');
-      if (e is AuthException) {
+      if (e is supabase.AuthException) {
         throw e.message;
       }
       throw e.toString();

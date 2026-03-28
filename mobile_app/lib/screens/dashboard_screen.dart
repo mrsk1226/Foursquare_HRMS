@@ -101,18 +101,24 @@ class _DashboardHomeState extends State<_DashboardHome> {
       if (user == null) return;
 
       // Fetch Profile for employee_id
-      final profileRes = await _supabase.from('profiles').select('employee_id').eq('id', user.id).maybeSingle();
+      final profileRes = await _supabase
+          .from('profiles')
+          .select('employee_id')
+          .eq('id', user.id)
+          .maybeSingle();
       final empId = profileRes?['employee_id'];
 
       // Fetch Announcements
-      final annRes = await _supabase.from('announcements')
+      final annRes = await _supabase
+          .from('announcements')
           .select()
           .order('created_at', ascending: false)
           .limit(3);
-          
+
       // Fetch Today's Attendance
       final today = DateTime.now().toIso8601String().split('T')[0];
-      final attRes = await _supabase.from('attendance_logs')
+      final attRes = await _supabase
+          .from('attendance_logs')
           .select()
           .eq('employee_id', empId ?? '')
           .eq('date', today)
@@ -145,7 +151,8 @@ class _DashboardHomeState extends State<_DashboardHome> {
       builder: (context, state) {
         String name = 'User';
         if (state is AuthAuthenticated) {
-          name = state.profile?['employees']?['full_name']?.split(' ')[0] ?? 'User';
+          name = state.profile?['employees']?['full_name']?.split(' ')[0] ??
+              'User';
         }
 
         if (_isLoading) {
@@ -168,14 +175,24 @@ class _DashboardHomeState extends State<_DashboardHome> {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('${_getGreeting()},', style: const TextStyle(fontSize: 16, color: Colors.grey)),
-                        Text(name, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F))),
+                        Text('${_getGreeting()},',
+                            style: const TextStyle(
+                                fontSize: 16, color: Colors.grey)),
+                        Text(name,
+                            style: const TextStyle(
+                                fontSize: 26,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1E3A5F))),
                       ],
                     ),
                     CircleAvatar(
                       radius: 24,
                       backgroundColor: const Color(0xFF2E86AB).withOpacity(0.2),
-                      child: Text(name[0], style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F))),
+                      child: Text(name[0],
+                          style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1E3A5F))),
                     )
                   ],
                 ),
@@ -186,14 +203,22 @@ class _DashboardHomeState extends State<_DashboardHome> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(20.0),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [Color(0xFF1E3A5F), Color(0xFF2E86AB)]),
+                    gradient: const LinearGradient(
+                        colors: [Color(0xFF1E3A5F), Color(0xFF2E86AB)]),
                     borderRadius: BorderRadius.circular(16.0),
-                    boxShadow: [BoxShadow(color: Colors.blue.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, 4))],
+                    boxShadow: [
+                      BoxShadow(
+                          color: Colors.blue.withOpacity(0.2),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4))
+                    ],
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Today\'s Attendance', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                      const Text('Today\'s Attendance',
+                          style:
+                              TextStyle(color: Colors.white70, fontSize: 14)),
                       const SizedBox(height: 8),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -201,15 +226,27 @@ class _DashboardHomeState extends State<_DashboardHome> {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('Punch In', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                              Text(_attendanceToday?['check_in'] ?? '--:--', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                              const Text('Punch In',
+                                  style: TextStyle(
+                                      color: Colors.white54, fontSize: 12)),
+                              Text(_attendanceToday?['check_in'] ?? '--:--',
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold)),
                             ],
                           ),
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              const Text('Punch Out', style: TextStyle(color: Colors.white54, fontSize: 12)),
-                              Text(_attendanceToday?['check_out'] ?? '--:--', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                              const Text('Punch Out',
+                                  style: TextStyle(
+                                      color: Colors.white54, fontSize: 12)),
+                              Text(_attendanceToday?['check_out'] ?? '--:--',
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold)),
                             ],
                           ),
                         ],
@@ -220,29 +257,62 @@ class _DashboardHomeState extends State<_DashboardHome> {
                 const SizedBox(height: 24),
 
                 // Quick Actions
-                const Text('Quick Actions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F))),
+                const Text('Quick Actions',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E3A5F))),
                 const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    _buildActionBtn(context, Icons.fingerprint, 'Punch', Colors.orange, () => DefaultTabController.of(context)?.animateTo(1)),
-                    _buildActionBtn(context, Icons.event_note, 'Leave', Colors.green, () => DefaultTabController.of(context)?.animateTo(2)),
-                    _buildActionBtn(context, Icons.receipt_long, 'Payslip', Colors.blue, () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PayslipScreen()))),
-                    _buildActionBtn(context, Icons.person, 'Profile', Colors.purple, () => DefaultTabController.of(context)?.animateTo(3)),
+                    _buildActionBtn(
+                        context,
+                        Icons.fingerprint,
+                        'Punch',
+                        Colors.orange,
+                        () => DefaultTabController.of(context).animateTo(1)),
+                    _buildActionBtn(
+                        context,
+                        Icons.event_note,
+                        'Leave',
+                        Colors.green,
+                        () => DefaultTabController.of(context).animateTo(2)),
+                    _buildActionBtn(
+                        context,
+                        Icons.receipt_long,
+                        'Payslip',
+                        Colors.blue,
+                        () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const PayslipScreen()))),
+                    _buildActionBtn(
+                        context,
+                        Icons.person,
+                        'Profile',
+                        Colors.purple,
+                        () => DefaultTabController.of(context).animateTo(3)),
                   ],
                 ),
                 const SizedBox(height: 24),
 
                 // Leave Balance Summary (Mocked for UI brevity, to implement actual sum in leave module)
-                const Text('Leave Balance', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F))),
+                const Text('Leave Balance',
+                    style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E3A5F))),
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    Expanded(child: _buildLeaveCard('Casual', '12', Colors.blue)),
+                    Expanded(
+                        child: _buildLeaveCard('Casual', '12', Colors.blue)),
                     const SizedBox(width: 12),
                     Expanded(child: _buildLeaveCard('Sick', '04', Colors.red)),
                     const SizedBox(width: 12),
-                    Expanded(child: _buildLeaveCard('Earned', '15', Colors.green)),
+                    Expanded(
+                        child: _buildLeaveCard('Earned', '15', Colors.green)),
                   ],
                 ),
                 const SizedBox(height: 24),
@@ -251,50 +321,73 @@ class _DashboardHomeState extends State<_DashboardHome> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Recent Announcements', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1E3A5F))),
+                    const Text('Recent Announcements',
+                        style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF1E3A5F))),
                     TextButton(
-                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AnnouncementsScreen())), 
-                      child: const Text('View All', style: TextStyle(color: Color(0xFF2E86AB)))
-                    ),
+                        onPressed: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const AnnouncementsScreen())),
+                        child: const Text('View All',
+                            style: TextStyle(color: Color(0xFF2E86AB)))),
                   ],
                 ),
                 if (_announcements.isEmpty)
                   const Padding(
                     padding: EdgeInsets.all(16.0),
-                    child: Center(child: Text('No announcements available', style: TextStyle(color: Colors.grey))),
+                    child: Center(
+                        child: Text('No announcements available',
+                            style: TextStyle(color: Colors.grey))),
                   )
                 else
-                  ..._announcements.map((ann) => Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.grey.shade200),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(color: Colors.blue.shade50, borderRadius: BorderRadius.circular(8)),
-                          child: const Icon(Icons.campaign, color: Color(0xFF2E86AB)),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(ann['title'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                              const SizedBox(height: 4),
-                              Text(ann['content'] ?? '', maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-                            ],
-                          ),
-                        )
-                      ],
-                    ),
-                  )).toList(),
-                  
+                  ..._announcements
+                      .map((ann) => Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.grey.shade200),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                      color: Colors.blue.shade50,
+                                      borderRadius: BorderRadius.circular(8)),
+                                  child: const Icon(Icons.campaign,
+                                      color: Color(0xFF2E86AB)),
+                                ),
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(ann['title'] ?? '',
+                                          style: const TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 16)),
+                                      const SizedBox(height: 4),
+                                      Text(ann['content'] ?? '',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                              color: Colors.grey.shade600,
+                                              fontSize: 13)),
+                                    ],
+                                  ),
+                                )
+                              ],
+                            ),
+                          ))
+                      .toList(),
+
                 const SizedBox(height: 32),
               ],
             ),
@@ -304,18 +397,22 @@ class _DashboardHomeState extends State<_DashboardHome> {
     );
   }
 
-  Widget _buildActionBtn(BuildContext context, IconData icon, String label, Color color, VoidCallback onTap) {
+  Widget _buildActionBtn(BuildContext context, IconData icon, String label,
+      Color color, VoidCallback onTap) {
     return GestureDetector(
       onTap: onTap,
       child: Column(
         children: [
           Container(
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+            decoration: BoxDecoration(
+                color: color.withOpacity(0.1), shape: BoxShape.circle),
             child: Icon(icon, color: color, size: 28),
           ),
           const SizedBox(height: 8),
-          Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+          Text(label,
+              style:
+                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
         ],
       ),
     );
@@ -331,9 +428,15 @@ class _DashboardHomeState extends State<_DashboardHome> {
       ),
       child: Column(
         children: [
-          Text(title, style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.bold)),
+          Text(title,
+              style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Text(bal, style: TextStyle(color: color, fontSize: 22, fontWeight: FontWeight.black)),
+          Text(bal,
+              style: TextStyle(
+                  color: color, fontSize: 22, fontWeight: FontWeight.black)),
         ],
       ),
     );

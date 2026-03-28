@@ -7,6 +7,8 @@ import {
   CalendarDays, Save, Download, EyeOff, Eye, Upload
 } from 'lucide-react';
 import { format } from 'date-fns';
+import Breadcrumb from '../components/Breadcrumb';
+
 
 const MyProfile = () => {
   const { profile, user } = useAuth();
@@ -193,13 +195,11 @@ const MyProfile = () => {
   );
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto w-full">
+    <div className="space-y-6 max-w-7xl mx-auto w-full p-8">
+      <Breadcrumb items={[{ label: 'My Profile', path: null }]} />
       {/* Breadcrumb & Top Actions */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-2">
         <div>
-          <div className="text-sm text-gray-400 mb-2">
-            <span>Home</span> <span className="mx-1">&gt;</span> <span className="text-gray-700 font-semibold">My profile</span>
-          </div>
           <h1 className="text-2xl font-bold text-[#1E3A5F]">My Profile</h1>
         </div>
         <div className="flex items-center gap-3">

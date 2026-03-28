@@ -74,6 +74,12 @@
       "languageVersion": "3.4"
     },
     {
+      "name": "csslib",
+      "rootUri": "file:///C:/Users/santh/AppData/Local/Pub/Cache/hosted/pub.dev/csslib-1.0.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.1"
+    },
+    {
       "name": "cupertino_icons",
       "rootUri": "file:///C:/Users/santh/AppData/Local/Pub/Cache/hosted/pub.dev/cupertino_icons-1.0.8",
       "packageUri": "lib/",
@@ -200,6 +206,42 @@
       "languageVersion": "3.9"
     },
     {
+      "name": "google_maps",
+      "rootUri": "file:///C:/Users/santh/AppData/Local/Pub/Cache/hosted/pub.dev/google_maps-8.2.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.4"
+    },
+    {
+      "name": "google_maps_flutter",
+      "rootUri": "file:///C:/Users/santh/AppData/Local/Pub/Cache/hosted/pub.dev/google_maps_flutter-2.16.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.10"
+    },
+    {
+      "name": "google_maps_flutter_android",
+      "rootUri": "file:///C:/Users/santh/AppData/Local/Pub/Cache/hosted/pub.dev/google_maps_flutter_android-2.19.5",
+      "packageUri": "lib/",
+      "languageVersion": "3.9"
+    },
+    {
+      "name": "google_maps_flutter_ios",
+      "rootUri": "file:///C:/Users/santh/AppData/Local/Pub/Cache/hosted/pub.dev/google_maps_flutter_ios-2.18.1",
+      "packageUri": "lib/",
+      "languageVersion": "3.10"
+    },
+    {
+      "name": "google_maps_flutter_platform_interface",
+      "rootUri": "file:///C:/Users/santh/AppData/Local/Pub/Cache/hosted/pub.dev/google_maps_flutter_platform_interface-2.15.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.9"
+    },
+    {
+      "name": "google_maps_flutter_web",
+      "rootUri": "file:///C:/Users/santh/AppData/Local/Pub/Cache/hosted/pub.dev/google_maps_flutter_web-0.6.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.9"
+    },
+    {
       "name": "gotrue",
       "rootUri": "file:///C:/Users/santh/AppData/Local/Pub/Cache/hosted/pub.dev/gotrue-1.12.6",
       "packageUri": "lib/",
@@ -228,6 +270,12 @@
       "rootUri": "file:///C:/Users/santh/AppData/Local/Pub/Cache/hosted/pub.dev/hooks-1.0.2",
       "packageUri": "lib/",
       "languageVersion": "3.10"
+    },
+    {
+      "name": "html",
+      "rootUri": "file:///C:/Users/santh/AppData/Local/Pub/Cache/hosted/pub.dev/html-0.15.6",
+      "packageUri": "lib/",
+      "languageVersion": "3.2"
     },
     {
       "name": "http",
@@ -500,6 +548,12 @@
       "languageVersion": "2.12"
     },
     {
+      "name": "sanitize_html",
+      "rootUri": "file:///C:/Users/santh/AppData/Local/Pub/Cache/hosted/pub.dev/sanitize_html-2.1.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.12"
+    },
+    {
       "name": "shared_preferences",
       "rootUri": "file:///C:/Users/santh/AppData/Local/Pub/Cache/hosted/pub.dev/shared_preferences-2.5.4",
       "packageUri": "lib/",
@@ -588,6 +642,12 @@
       "rootUri": "file:///C:/Users/santh/AppData/Local/Pub/Cache/hosted/pub.dev/stream_channel-2.1.4",
       "packageUri": "lib/",
       "languageVersion": "3.3"
+    },
+    {
+      "name": "stream_transform",
+      "rootUri": "file:///C:/Users/santh/AppData/Local/Pub/Cache/hosted/pub.dev/stream_transform-2.1.1",
+      "packageUri": "lib/",
+      "languageVersion": "3.1"
     },
     {
       "name": "string_scanner",

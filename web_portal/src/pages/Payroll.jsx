@@ -1,14 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import Breadcrumb from '../components/Breadcrumb';
+
+
 import { supabase } from '../lib/supabase_client';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import { 
   Receipt, Download, FileText, CheckCircle2, Calculator, 
-  Calendar as CalendarIcon, Printer, X
+  Calendar as CalendarIcon, Printer, X, ArrowLeft
 } from 'lucide-react';
+
 
 const Payroll = () => {
   const { profile } = useAuth();
+  const navigate = useNavigate();
+
   const isAdmin = profile?.role === 'admin';
   const isHR = profile?.role === 'hr';
   const canViewAll = isAdmin || isHR;
@@ -132,7 +139,16 @@ const Payroll = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto p-8">
+      <Breadcrumb items={[{ label: 'Payroll', path: null }]} />
+      <button 
+        onClick={() => navigate('/dashboard')} 
+        className="group flex items-center text-xs font-black text-slate-400 hover:text-[#0f172a] transition-colors mb-2"
+      >
+        <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
+        BACK TO DASHBOARD
+      </button>
+
       {/* Print Styles */}
       <style>{`
         @media print {

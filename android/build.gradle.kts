@@ -1,10 +1,14 @@
+val kotlinVersion = "2.2.20"
+val androidMapsUtilsVersion = "4.1.0"
+val playServicesMapsVersion = "20.0.0"
+
 buildscript {
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
     }
 }
 
@@ -32,7 +36,11 @@ subprojects {
 subprojects {
     configurations.all {
         resolutionStrategy {
-            force("org.jetbrains.kotlin:kotlin-stdlib:2.1.0")
+            force("org.jetbrains.kotlin:kotlin-stdlib:$kotlinVersion")
+            force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlinVersion")
+            force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlinVersion")
+            force("com.google.maps.android:android-maps-utils:$androidMapsUtilsVersion")
+            force("com.google.android.gms:play-services-maps:$playServicesMapsVersion")
         }
     }
 }

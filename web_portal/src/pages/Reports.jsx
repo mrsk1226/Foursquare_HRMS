@@ -7,8 +7,10 @@ import {
 } from 'recharts';
 import {
   Download, Filter, CalendarCheck, CalendarOff, Receipt, Users,
-  TrendingDown, TrendingUp, Search, CheckSquare
+  TrendingDown, TrendingUp, Search, CheckSquare, ArrowLeft
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
 
 const HARDCODED_DEPTS = [
   'Sales', 'Operations', 'Accounts', 'HR', 'Design', 'Production', 
@@ -21,7 +23,9 @@ const PIE_COLORS = { Active: '#28A745', Inactive: '#DC3545', Male: '#2E86AB', Fe
 const STATUS_COLORS = { approved: '#28A745', pending: '#FFC107', rejected: '#DC3545' };
 
 export default function Reports() {
+  const navigate = useNavigate();
   const [reportType, setReportType] = useState('attendance');
+
   const [loading, setLoading] = useState(false);
   
   const [employees, setEmployees] = useState([]);
@@ -245,6 +249,14 @@ export default function Reports() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto p-8">
+      <button 
+        onClick={() => navigate('/dashboard')} 
+        className="group flex items-center text-xs font-black text-slate-400 hover:text-[#0f172a] transition-colors mb-2"
+      >
+        <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
+        BACK TO DASHBOARD
+      </button>
+
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
         <div>
           <h1 className="text-2xl font-bold text-[#1E3A5F]">Reports & Analytics</h1>

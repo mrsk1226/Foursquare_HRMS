@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase_client';
 import { useAuth } from '../context/AuthContext';
-import { Download, Upload, Plus, FileText, CheckCircle, XCircle } from 'lucide-react';
+import { Download, Upload, Plus, FileText, CheckCircle, XCircle, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import Breadcrumb from '../components/Breadcrumb';
+
+
 import toast from 'react-hot-toast';
 
 export default function Expenses() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
+
   const [activeTab, setActiveTab] = useState('my-claims');
   const [claims, setClaims] = useState([]);
   const [allPendingClaims, setAllPendingClaims] = useState([]);
@@ -172,7 +178,16 @@ export default function Expenses() {
   };
 
   return (
-    <div className="p-8">
+    <div className="p-8 max-w-7xl mx-auto space-y-6">
+      <Breadcrumb items={[{ label: 'Expenses', path: null }]} />
+      <button 
+        onClick={() => navigate('/dashboard')} 
+        className="group flex items-center text-xs font-black text-slate-400 hover:text-[#0f172a] transition-colors mb-6"
+      >
+        <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
+        BACK TO DASHBOARD
+      </button>
+
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Expenses</h1>

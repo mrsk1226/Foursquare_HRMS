@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
+import { supabase } from '../lib/supabase_client';
+import toast from 'react-hot-toast';
 
 const TopNavbar = () => {
   const { profile } = useAuth();
@@ -9,6 +11,8 @@ const TopNavbar = () => {
   const [employee, setEmployee] = useState(null);
 
   useEffect(() => {
+    let isActive = true;
+
     async function fetchEmployee() {
       if (!profile?.employee_id) return;
       const { data, error } = await supabase
@@ -16,12 +20,40 @@ const TopNavbar = () => {
         .select('full_name, photo_url')
         .eq('employee_id', profile.employee_id)
         .maybeSingle();
-      if (!error && data) {
+      if (isActive && !error && data) {
         setEmployee(data);
       }
     }
     fetchEmployee();
+
+    return () => {
+      isActive = false;
+    };
   }, [profile?.employee_id]);
+
+  const [status, setStatus] = useState('connecting');
+
+  useEffect(() => {
+    const channel = supabase.channel('realtime-check')
+      .on('system', { event: 'subscribe' }, () => {
+        setStatus('connected');
+      })
+      .on('system', { event: 'error' }, () => {
+        setStatus('disconnected');
+        toast.error("Realtime connection offline. Changes may not sync instantly.");
+      })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') setStatus('connected');
+        if (status === 'CLOSED') {
+          setStatus('disconnected');
+          toast.error("Offline. Reconnecting...");
+        }
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const displayName = employee?.full_name || profile?.full_name || profile?.email || 'User';
   const avatarLetter = displayName?.charAt(0)?.toUpperCase() || 'U';
@@ -41,10 +73,14 @@ const TopNavbar = () => {
 
   return (
     <div className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-8 flex-shrink-0 z-10 shadow-sm">
-      <div className="flex items-center">
+      <div className="flex items-center gap-4">
         <h1 className="text-lg font-bold text-[#1a2744]">
           {getPageTitle(location.pathname)}
         </h1>
+        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-50 border border-slate-100">
+          <div className={`w-2 h-2 rounded-full ${status === 'connected' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`} />
+          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{status === 'connected' ? 'Live' : 'Offline'}</span>
+        </div>
       </div>
 
       <div className="flex items-center space-x-8">

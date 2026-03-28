@@ -22,6 +22,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
+import BrandLogo from './BrandLogo';
 
 const Sidebar = () => {
   const { signOut, profile } = useAuth();
@@ -81,33 +82,56 @@ const Sidebar = () => {
 
   return (
     <div
-      className={`h-screen flex flex-col transition-all duration-300 shadow-xl z-20 overflow-hidden bg-[#1a2744] text-white`}
+      className={`h-screen flex flex-col transition-all duration-300 shadow-[0_24px_70px_rgba(15,23,42,0.28)] z-20 overflow-hidden bg-[linear-gradient(180deg,#0f172a_0%,#16243b_42%,#1e3a5f_100%)] text-white`}
       style={{ width: collapsed ? '80px' : '240px' }}
     >
       {/* Header with Name + ID */}
       <div className="p-4 border-b border-white/10 flex flex-col space-y-3">
-        <div className="flex items-center justify-between">
-          {!collapsed && (
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-blue-500 rounded flex items-center justify-center font-bold">F</div>
-              <span className="text-xl font-bold tracking-tight">FSQ HRMS</span>
+        <div className="flex items-center min-h-[40px]">
+          <div className="relative flex-1 flex items-center h-[40px]">
+            {/* Expanded Logo */}
+            <div 
+              className={`absolute left-0 transition-all duration-250 cubic-bezier(0.4, 0, 0.2, 1) ${
+                collapsed 
+                  ? 'opacity-0 scale-90 pointer-events-none' 
+                  : 'opacity-100 scale-100 delay-100'
+              }`}
+            >
+              <img 
+                src="/images/4square_white.png" 
+                alt="Foursquare Logo" 
+                className="h-[36px] w-auto object-contain"
+              />
             </div>
-          )}
-          {collapsed && (
-             <div className="w-8 h-8 bg-blue-500 rounded flex items-center justify-center font-bold mx-auto">F</div>
-          )}
+
+            {/* Collapsed Logo (App Icon) */}
+            <div 
+              className={`absolute left-1/2 -translate-x-1/2 transition-all duration-250 cubic-bezier(0.4, 0, 0.2, 1) ${
+                collapsed 
+                  ? 'opacity-100 scale-100 delay-100' 
+                  : 'opacity-0 scale-90 pointer-events-none'
+              }`}
+            >
+              <img 
+                src="/images/app_icon.png" 
+                alt="App Icon" 
+                className="w-8 h-8 object-contain"
+              />
+            </div>
+          </div>
+          
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="p-1.5 hover:bg-white/10 rounded transition-colors"
+            className="p-1.5 hover:bg-white/10 rounded-xl transition-colors shrink-0"
           >
             {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
           </button>
         </div>
 
         {!collapsed && (
-          <div className="bg-white/5 p-3 rounded-lg">
-            <p className="text-sm font-semibold truncate">{displayName}</p>
-            <p className="text-[10px] text-blue-300 uppercase tracking-wider font-bold mt-0.5">ID: {displayId}</p>
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-3 backdrop-blur-xl">
+            <p className="text-sm font-semibold truncate text-white">{displayName}</p>
+            <p className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.22em] text-blue-200">ID: {displayId}</p>
           </div>
         )}
       </div>
@@ -122,12 +146,12 @@ const Sidebar = () => {
               to={item.path}
               title={collapsed ? item.name : ''}
               className={({ isActive }) =>
-                `flex items-center rounded-lg transition-all duration-200 ${
+                `flex items-center rounded-2xl transition-all duration-200 ${
                   collapsed ? 'justify-center p-3' : 'px-3 py-2.5 space-x-3'
                 } ${
                   isActive
-                    ? 'bg-blue-500 text-white shadow-lg'
-                    : 'text-gray-400 hover:bg-white/10 hover:text-white'
+                    ? 'bg-sky-500/20 text-sky-400 shadow-[0_14px_30px_rgba(15,23,42,0.24)] ring-1 ring-sky-500/30'
+                    : 'text-slate-300 hover:bg-white/8 hover:text-white'
                 }`
               }
             >
@@ -142,7 +166,7 @@ const Sidebar = () => {
       <div className="p-4 border-t border-white/10">
         <button
           onClick={handleSignOut}
-          className={`flex items-center w-full text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all ${
+          className={`flex items-center w-full text-slate-300 hover:text-red-300 hover:bg-red-500/10 rounded-2xl transition-all ${
             collapsed ? 'justify-center p-3' : 'px-3 py-2.5 space-x-3'
           }`}
         >

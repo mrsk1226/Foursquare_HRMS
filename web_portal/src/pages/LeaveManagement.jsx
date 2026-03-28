@@ -1,625 +1,607 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { format, parseISO } from 'date-fns';
-import { CalendarDays, CheckCircle2, Clock3, FileText, XCircle } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
-import toast from 'react-hot-toast';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase_client';
 import { useAuth } from '../context/AuthContext';
+import toast from 'react-hot-toast';
+import { format, parseISO, isSunday, addDays } from 'date-fns';
+import { useLocation } from 'react-router-dom';
+import { 
+  Plus, CheckCircle, XCircle, Clock, 
+  X, Users, FileSignature, AlertCircle, Calendar, ArrowLeft
+} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import RequestStatusModal from '../components/RequestStatusModal';
+import { DashboardWidgetSkeleton, TableSkeleton } from '../components/ui/LoadingSkeleton';
 
-const HR_EMPLOYEE_ID = 'FSQ002';
-
-const emptyLeaveForm = {
-  leave_type: 'Casual Leave',
-  start_date: '',
-  end_date: '',
-  reason: '',
-};
-
-const getStatusMeta = (request) => {
-  const status = (request?.status || 'pending').toLowerCase();
-  const currentLevel = Number(request?.current_approval_level || 1);
-  const isDirectHrFlow = request?.level_1_approver_id === HR_EMPLOYEE_ID;
-
-  if (status === 'approved') {
-    return { label: 'Approved', className: 'bg-green-100 text-green-700' };
-  }
-
-  if (status === 'rejected') {
-    return { label: 'Rejected', className: 'bg-red-100 text-red-700' };
-  }
-
-  if (currentLevel >= 2 && !isDirectHrFlow) {
-    return {
-      label: 'Manager Approved | HR Pending',
-      className: 'bg-blue-100 text-blue-700',
-    };
-  }
-
-  return {
-    label: isDirectHrFlow ? 'Waiting for HR' : 'Waiting for Manager',
-    className: 'bg-amber-100 text-amber-700',
-  };
-};
-
-const canHrProcessRequest = (request) => {
-  const status = (request?.status || 'pending').toLowerCase();
-  if (status !== 'pending') return false;
-
-  const currentLevel = Number(request?.current_approval_level || 1);
-  return currentLevel === 2 || request?.level_1_approver_id === HR_EMPLOYEE_ID;
-};
-
-const approvalSummary = (request) => {
-  if ((request?.status || '').toLowerCase() === 'approved') {
-    return 'Final approval completed';
-  }
-
-  if ((request?.status || '').toLowerCase() === 'rejected') {
-    return 'Request was rejected';
-  }
-
-  if (Number(request?.current_approval_level || 1) >= 2 && request?.level_1_approver_id !== HR_EMPLOYEE_ID) {
-    return 'Manager approved. Waiting for HR final approval';
-  }
-
-  return request?.level_1_approver_id === HR_EMPLOYEE_ID
-    ? 'Waiting for HR approval'
-    : 'Waiting for manager approval';
-};
-
-export default function LeaveManagement() {
+const LeaveManagement = () => {
   const location = useLocation();
   const { profile } = useAuth();
-
-  const canFinalApprove = profile?.role === 'hr';
-  const tabs = useMemo(
-    () => (canFinalApprove ? ['MyLeaves', 'TeamLeaves', 'MyPermissions', 'TeamPermissions'] : ['MyLeaves', 'MyPermissions']),
-    [canFinalApprove]
-  );
-
-  const [activeTab, setActiveTab] = useState(location.state?.tab || tabs[0]);
-  const [highlightId, setHighlightId] = useState(location.state?.highlightId || null);
-  const [loading, setLoading] = useState(true);
+  const isAdmin = ['admin', 'hr', 'md'].includes(profile?.role);
+  
+  const [activeTab, setActiveTab] = useState(location.state?.tab || 'MyLeaves');
   const [requests, setRequests] = useState([]);
   const [permissionRequests, setPermissionRequests] = useState([]);
   const [balances, setBalances] = useState([]);
+  const [allEmployees, setAllEmployees] = useState([]);
+  const [selectedEmployee, setSelectedEmployee] = useState('all');
+  const [loading, setLoading] = useState(true);
+  const [highlightId, setHighlightId] = useState(location.state?.highlightId || null);
+  const [selectedRequestDetail, setSelectedRequestDetail] = useState(null);
+  
+  // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedRequest, setSelectedRequest] = useState(null);
-  const [selectedType, setSelectedType] = useState('leave');
-  const [approvalAction, setApprovalAction] = useState('approve');
-  const [approvalRemarks, setApprovalRemarks] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formData, setFormData] = useState(emptyLeaveForm);
-
-  useEffect(() => {
-    if (tabs.length && !tabs.includes(activeTab)) {
-      setActiveTab(tabs[0]);
-    }
-  }, [tabs, activeTab]);
-
-  useEffect(() => {
-    if (location.state?.tab) setActiveTab(location.state.tab);
-    if (location.state?.highlightId) setHighlightId(location.state.highlightId);
-  }, [location.state]);
+  const [isPermissionModalOpen, setIsPermissionModalOpen] = useState(false);
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  
+  // Forms
+  const [formData, setFormData] = useState({ leave_type: 'Casual Leave', start_date: '', end_date: '', reason: '' });
+  const [permFormData, setPermFormData] = useState({ date: '', start_time: '', end_time: '', reason: 'Medical Appointment', otherReason: '', remarks: '' });
+  const [rejectForm, setRejectForm] = useState({ id: null, type: '', reason: '', recipient_id: '', leave_type: '', start_date: '', end_date: '', date: '' });
 
   useEffect(() => {
     if (profile?.employee_id) {
       loadData();
     }
-  }, [profile?.employee_id, activeTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, activeTab, selectedEmployee]);
+
+  useEffect(() => {
+    if (location.state?.tab) {
+      setActiveTab(location.state.tab);
+    }
+    if (location.state?.highlightId) {
+      setHighlightId(String(location.state.highlightId));
+    }
+  }, [location.state]);
+
+  useEffect(() => {
+    if (!highlightId) return;
+
+    const targetRow = document.querySelector(`[data-request-row="${activeTab}-${highlightId}"]`);
+    if (!targetRow) return;
+
+    targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const timeoutId = window.setTimeout(() => setHighlightId(null), 5000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [activeTab, highlightId, requests, permissionRequests]);
 
   const loadData = async () => {
     setLoading(true);
-    try {
-      await Promise.all([
-        activeTab === 'MyLeaves' ? fetchMyLeaves() : Promise.resolve(),
-        activeTab === 'TeamLeaves' ? fetchTeamLeaves() : Promise.resolve(),
-        activeTab === 'MyPermissions' ? fetchMyPermissions() : Promise.resolve(),
-        activeTab === 'TeamPermissions' ? fetchTeamPermissions() : Promise.resolve(),
-        fetchMyBalances(),
-      ]);
-    } catch (error) {
-      console.error(error);
-      toast.error('Failed to load leave data');
-    } finally {
-      setLoading(false);
-    }
+    if (activeTab === 'MyLeaves') await fetchMyLeaves();
+    else if (activeTab === 'TeamLeaves') await fetchAllRequests();
+    else if (activeTab === 'MyPermissions') await fetchMyPermissions();
+    else if (activeTab === 'TeamPermissions') await fetchAllPermissions();
+    
+    await fetchMyBalances();
+    await fetchEmployees();
+    setLoading(false);
+  };
+
+  const fetchEmployees = async () => {
+    const { data } = await supabase.from('employees').select('employee_id, full_name, department');
+    setAllEmployees(data || []);
   };
 
   const fetchMyLeaves = async () => {
-    const { data, error } = await supabase
-      .from('leave_requests')
-      .select('*')
-      .eq('employee_id', profile.employee_id)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
+    const { data } = await supabase.from('leave_requests').select('*, employees(full_name, department)').eq('employee_id', profile.employee_id).order('created_at', { ascending: false });
     setRequests(data || []);
   };
 
-  const fetchTeamLeaves = async () => {
-    const { data, error } = await supabase
-      .from('leave_requests')
-      .select('*, employees(full_name, department, work_location)')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    setRequests((data || []).filter(canHrProcessRequest));
-  };
-
-  const fetchMyPermissions = async () => {
-    const { data, error } = await supabase
-      .from('permissions')
-      .select('*')
-      .eq('employee_id', profile.employee_id)
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    setPermissionRequests(data || []);
-  };
-
-  const fetchTeamPermissions = async () => {
-    const { data, error } = await supabase
-      .from('permissions')
-      .select('*, employees(full_name, department, work_location)')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false });
-
-    if (error) throw error;
-    setPermissionRequests((data || []).filter(canHrProcessRequest));
-  };
-
   const fetchMyBalances = async () => {
-    const { data, error } = await supabase
-      .from('leave_balances')
-      .select('*')
-      .eq('employee_id', profile.employee_id);
-
-    if (error) throw error;
+    const { data } = await supabase.from('leave_balances').select('*').eq('employee_id', profile.employee_id).eq('year', new Date().getFullYear());
     setBalances(data || []);
   };
 
-  const sendNotification = async ({
-    recipientId,
-    type,
-    title,
-    message,
-    referenceType,
-    referenceId,
-  }) => {
-    const { error } = await supabase.from('notifications').insert({
-      recipient_employee_id: recipientId,
-      sender_employee_id: profile.employee_id,
-      type,
-      title,
-      message,
-      reference_type: referenceType,
-      reference_id: String(referenceId),
-      is_read: false,
-    });
-
-    if (error) throw error;
+  const fetchAllRequests = async () => {
+    let query = supabase.from('leave_requests').select('*, employees(full_name, department)').order('created_at', { ascending: false });
+    if (selectedEmployee !== 'all') query = query.eq('employee_id', selectedEmployee);
+    const { data } = await query;
+    setRequests(data || []);
   };
 
-  const resolveRouting = async () => {
-    const { data: employee, error: employeeError } = await supabase
-      .from('employees')
-      .select('department, work_location')
-      .eq('employee_id', profile.employee_id)
-      .single();
-
-    if (employeeError) throw employeeError;
-
-    const { data: routing, error: routingError } = await supabase
-      .from('approval_routing')
-      .select('level_1_approver_id, level_2_approver_id')
-      .eq('department', employee.department)
-      .eq('work_location', employee.work_location)
-      .single();
-
-    if (routingError) throw routingError;
-    return routing;
+  const fetchMyPermissions = async () => {
+    const { data } = await supabase.from('permissions').select('*, employees(full_name, department)').eq('employee_id', profile.employee_id).order('created_at', { ascending: false });
+    setPermissionRequests(data || []);
   };
 
-  const handleApplyLeave = async (event) => {
-    event.preventDefault();
+  const fetchAllPermissions = async () => {
+    let query = supabase.from('permissions').select('*, employees(full_name, department)').order('created_at', { ascending: false });
+    if (selectedEmployee !== 'all') query = query.eq('employee_id', selectedEmployee);
+    const { data } = await query;
+    setPermissionRequests(data || []);
+  };
 
+  const calculateDays = (start, end, dept = '') => {
+    let s = parseISO(start);
+    let e = parseISO(end);
+    let count = 0;
+    let isOffice = dept.toLowerCase().includes('office');
+    
+    let cur = s;
+    while (cur <= e) {
+      if (!(isOffice && isSunday(cur))) {
+        count++;
+      }
+      cur = addDays(cur, 1);
+    }
+    return count;
+  };
+
+  const handleApplyLeave = async (e) => {
+    e.preventDefault();
+    if (!formData.reason) return toast.error("Reason is required");
     try {
-      const routing = await resolveRouting();
-      const { data: inserted, error } = await supabase
-        .from('leave_requests')
-        .insert({
-          employee_id: profile.employee_id,
-          leave_type: formData.leave_type,
-          start_date: formData.start_date,
-          end_date: formData.end_date,
-          reason: formData.reason,
-          status: 'pending',
-          hr_status: 'pending',
-          current_approval_level: 1,
-          level_1_approver_id: routing.level_1_approver_id,
-        })
-        .select()
-        .single();
+      const { data, error } = await supabase.from('leave_requests').insert([{
+        employee_id: profile.employee_id,
+        leave_type: formData.leave_type,
+        start_date: formData.start_date,
+        end_date: formData.end_date,
+        reason: formData.reason,
+        status: 'pending',
+        created_at: new Date().toISOString()
+      }]).select().single();
 
       if (error) throw error;
 
-      await sendNotification({
-        recipientId: routing.level_1_approver_id,
+      const days = calculateDays(formData.start_date, formData.end_date);
+      await supabase.from('notifications').insert([{
+        recipient_employee_id: 'FSQ002',
+        sender_employee_id: profile.employee_id,
         type: 'leave_request',
-        title: routing.level_1_approver_id === HR_EMPLOYEE_ID ? 'New Leave Request for HR Approval' : 'New Leave Request for Manager Approval',
-        message: `${profile.employee_id} submitted a leave request from ${formData.start_date} to ${formData.end_date}.`,
-        referenceType: 'leave_request',
-        referenceId: inserted.id,
-      });
+        title: 'New Leave Request',
+        message: `${profile.full_name} applied for ${formData.leave_type} - ${days} days (${formData.start_date} to ${formData.end_date})`,
+        reference_type: 'leave_request',
+        reference_id: data.id.toString(),
+        is_read: false
+      }]);
 
-      toast.success('Leave request submitted');
-      setFormData(emptyLeaveForm);
+      toast.success('Leave application submitted!');
       setIsModalOpen(false);
+      setFormData({ leave_type: 'Casual Leave', start_date: '', end_date: '', reason: '' });
       fetchMyLeaves();
-    } catch (error) {
-      console.error(error);
-      toast.error(error.message || 'Failed to apply leave');
+    } catch {
+      toast.error('Failed to apply');
     }
   };
 
-  const openRequest = (request, type) => {
-    setSelectedRequest(request);
-    setSelectedType(type);
-    setApprovalAction('approve');
-    setApprovalRemarks('');
-  };
+  const handleApplyPermission = async (e) => {
+    e.preventDefault();
+    const finalReason = permFormData.reason === 'Others' ? permFormData.otherReason : permFormData.reason;
+    if (!finalReason) return toast.error("Reason is required");
+    
+    // Simple duration calc for client side display
+    const startMins = parseInt(permFormData.start_time.split(':')[0]) * 60 + parseInt(permFormData.start_time.split(':')[1]);
+    const endMins = parseInt(permFormData.end_time.split(':')[0]) * 60 + parseInt(permFormData.end_time.split(':')[1]);
+    const duration = endMins - startMins;
 
-  const handleProcessApproval = async () => {
-    if (!selectedRequest) return;
-    if (approvalAction === 'reject' && !approvalRemarks.trim()) {
-      toast.error('Remarks are required for rejection');
-      return;
-    }
-
-    const tableName = selectedType === 'leave' ? 'leave_requests' : 'permissions';
-    const referenceType = selectedType === 'leave' ? 'leave_request' : 'permission_request';
-    const now = new Date().toISOString();
-    const updates =
-      approvalAction === 'approve'
-        ? {
-            status: 'approved',
-            hr_status: 'approved',
-            current_approval_level: Number(selectedRequest.current_approval_level || 1) === 1 ? 2 : selectedRequest.current_approval_level,
-            level_1_approved_at: selectedRequest.level_1_approved_at || now,
-            level_1_remarks: selectedRequest.level_1_approved_at ? selectedRequest.level_1_remarks : approvalRemarks.trim() || null,
-            final_approver_id: profile.employee_id,
-            final_approved_at: now,
-          }
-        : {
-            status: 'rejected',
-            hr_status: 'rejected',
-            level_1_remarks: approvalRemarks.trim(),
-            final_approver_id: profile.employee_id,
-          };
-
-    setIsSubmitting(true);
     try {
-      const { error } = await supabase.from(tableName).update(updates).eq('id', selectedRequest.id);
+      const { data, error } = await supabase.from('permissions').insert([{
+        employee_id: profile.employee_id,
+        date: permFormData.date,
+        start_time: permFormData.start_time,
+        end_time: permFormData.end_time,
+        duration_minutes: duration,
+        reason: finalReason,
+        remarks: permFormData.remarks,
+        status: 'pending',
+        created_at: new Date().toISOString()
+      }]).select().single();
+
       if (error) throw error;
 
-      await sendNotification({
-        recipientId: selectedRequest.employee_id,
-        type: referenceType,
-        title:
-          approvalAction === 'approve'
-            ? `${selectedType === 'leave' ? 'Leave' : 'Permission'} Approved`
-            : `${selectedType === 'leave' ? 'Leave' : 'Permission'} Rejected`,
-        message:
-          approvalAction === 'approve'
-            ? `Your ${selectedType} request has been approved by HR.`
-            : `Your ${selectedType} request was rejected by HR.${approvalRemarks.trim() ? ` Remarks: ${approvalRemarks.trim()}` : ''}`,
-        referenceType,
-        referenceId: selectedRequest.id,
-      });
+      await supabase.from('notifications').insert([{
+        recipient_employee_id: 'FSQ002',
+        sender_employee_id: profile.employee_id,
+        type: 'permission_request',
+        title: 'Permission Request',
+        message: `${profile.full_name} requested permission on ${permFormData.date} from ${permFormData.start_time} to ${permFormData.end_time} - ${finalReason}`,
+        reference_type: 'permission_request',
+        reference_id: data.id.toString(),
+        is_read: false
+      }]);
 
-      toast.success(
-        approvalAction === 'approve'
-          ? `${selectedType === 'leave' ? 'Leave' : 'Permission'} approved`
-          : `${selectedType === 'leave' ? 'Leave' : 'Permission'} rejected`
-      );
-
-      setSelectedRequest(null);
-      await loadData();
-    } catch (error) {
-      console.error(error);
-      toast.error(error.message || 'Unable to process request');
-    } finally {
-      setIsSubmitting(false);
+      toast.success('Permission request submitted!');
+      setIsPermissionModalOpen(false);
+      setPermFormData({ date: '', start_time: '', end_time: '', reason: 'Medical Appointment', otherReason: '', remarks: '' });
+      fetchMyPermissions();
+    } catch {
+      toast.error('Failed to submit permission');
     }
   };
 
-  const renderBalanceCards = () => {
-    if (!balances.length || !activeTab.startsWith('My')) return null;
+  const handleApprove = async (req, type) => {
+    try {
+      const table = type === 'leave' ? 'leave_requests' : 'permissions';
+      const { error } = await supabase.from(table).update({ 
+        status: 'approved', 
+        approved_by: profile.employee_id,
+        approved_at: new Date().toISOString()
+      }).eq('id', req.id);
 
+      if (error) throw error;
+
+      if (type === 'leave') {
+        const days = calculateDays(req.start_date, req.end_date, req.employees?.department);
+        const { data: bal } = await supabase.from('leave_balances').select('*').eq('employee_id', req.employee_id).eq('leave_type', req.leave_type).eq('year', new Date().getFullYear()).maybeSingle();
+        if (bal) {
+          await supabase.from('leave_balances').update({ 
+            used: (bal.used || 0) + days, 
+            remaining: (bal.remaining || 0) - days 
+          }).eq('id', bal.id);
+        }
+
+        await supabase.from('notifications').insert([{
+          recipient_employee_id: req.employee_id,
+          sender_employee_id: profile.employee_id,
+          type: 'leave_approved',
+          title: 'Leave Approved',
+          message: `Your ${req.leave_type} from ${req.start_date} to ${req.end_date} has been approved by HR`,
+          reference_type: 'leave_request',
+          reference_id: String(req.id),
+          is_read: false
+        }]);
+      } else {
+        await supabase.from('notifications').insert([{
+          recipient_employee_id: req.employee_id,
+          sender_employee_id: profile.employee_id,
+          type: 'permission_approved',
+          title: 'Permission Approved',
+          message: `Your permission request for ${req.date} has been approved by HR`,
+          reference_type: 'permission_request',
+          reference_id: String(req.id),
+          is_read: false
+        }]);
+      }
+
+      toast.success('Request approved successfully');
+      loadData();
+    } catch {
+      toast.error('Approval failed');
+    }
+  };
+
+  const handleRejectClick = (req, type) => {
+    setRejectForm({
+      id: req.id,
+      type,
+      reason: '',
+      recipient_id: req.employee_id,
+      leave_type: req.leave_type,
+      start_date: req.start_date,
+      end_date: req.end_date,
+      date: req.date
+    });
+    setIsRejectModalOpen(true);
+  };
+
+  const handleRejectSubmit = async (e) => {
+    e.preventDefault();
+    if (!rejectForm.reason.trim()) return;
+
+    try {
+      const table = rejectForm.type === 'leave' ? 'leave_requests' : 'permissions';
+      // User specifies rejection_reason for leave but didn't specify for permissions. I'll use rejection_reason as requested.
+      const updateData = { status: 'rejected' };
+      if (rejectForm.type === 'leave') updateData.rejection_reason = rejectForm.reason;
+      else updateData.rejection_reason = rejectForm.reason; // Standardizing
+
+      await supabase.from(table).update(updateData).eq('id', rejectForm.id);
+
+      const title = rejectForm.type === 'leave' ? 'Leave Rejected' : 'Permission Rejected';
+      const msg = rejectForm.type === 'leave'
+        ? `Your ${rejectForm.leave_type} request was rejected. Reason: ${rejectForm.reason}`
+        : `Your permission for ${rejectForm.date} was rejected. Reason: ${rejectForm.reason}`;
+
+      await supabase.from('notifications').insert([{
+        recipient_employee_id: rejectForm.recipient_id,
+        sender_employee_id: profile.employee_id,
+        type: `${rejectForm.type}_rejected`,
+        title,
+        message: msg,
+        reference_type: rejectForm.type === 'leave' ? 'leave_request' : 'permission_request',
+        reference_id: String(rejectForm.id),
+        is_read: false
+      }]);
+
+      toast.success('Request rejected');
+      setIsRejectModalOpen(false);
+      loadData();
+    } catch {
+      toast.error('Rejection failed');
+    }
+  };
+
+  const openRequestDetail = (request) => {
+    setSelectedRequestDetail(request);
+  };
+
+  const StatusBadge = ({ status }) => {
+    const s = status?.toLowerCase() || 'pending';
+    const colors = { pending: 'bg-orange-100 text-orange-600', approved: 'bg-green-100 text-green-600', rejected: 'bg-red-100 text-red-600' };
     return (
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {balances.map((balance) => (
-          <div key={balance.id || balance.leave_type} className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-gray-400">{balance.leave_type || 'Leave Balance'}</p>
-            <p className="mt-3 text-3xl font-black text-[#1a2744]">{balance.balance_days ?? balance.remaining_days ?? 0}</p>
-            <p className="text-sm text-gray-500">days available</p>
-          </div>
-        ))}
-      </div>
+      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${colors[s]}`}>
+        {status}
+      </span>
     );
   };
 
-  const renderRequestsTable = (data, type) => (
-    <div className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-sm">
-      <table className="w-full text-left text-sm">
-        <thead className="bg-gray-50 text-[10px] font-black uppercase tracking-[0.25em] text-gray-400">
-          <tr>
-            <th className="p-4">Employee</th>
-            <th className="p-4">{type === 'leave' ? 'Request' : 'Time'}</th>
-            <th className="p-4">Date</th>
-            <th className="p-4">Status</th>
-            <th className="p-4 text-right">Open</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-50">
-          {data.map((request) => {
-            const meta = getStatusMeta(request);
-            const isHighlighted = highlightId === String(request.id);
-            const employeeName = request.employees?.full_name || request.employee_id;
-            const subtitle = request.employees?.department || 'Employee';
-
-            return (
-              <tr
-                key={`${type}-${request.id}`}
-                onClick={() => openRequest(request, type)}
-                className={`cursor-pointer transition hover:bg-gray-50 ${isHighlighted ? 'bg-blue-50' : ''}`}
-              >
-                <td className="p-4">
-                  <p className="font-bold text-[#1a2744]">{employeeName}</p>
-                  <p className="text-xs uppercase tracking-wide text-gray-400">{subtitle}</p>
-                </td>
-                <td className="p-4 font-medium text-gray-700">
-                  {type === 'leave'
-                    ? request.leave_type
-                    : `${String(request.start_time || '--').slice(0, 5)} - ${String(request.end_time || '--').slice(0, 5)}`}
-                </td>
-                <td className="p-4 font-medium text-gray-500">
-                  {type === 'leave'
-                    ? `${format(parseISO(request.start_date), 'dd MMM yyyy')} - ${format(parseISO(request.end_date), 'dd MMM yyyy')}`
-                    : format(parseISO(request.date), 'dd MMM yyyy')}
-                </td>
-                <td className="p-4">
-                  <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase ${meta.className}`}>{meta.label}</span>
-                </td>
-                <td className="p-4 text-right text-xs font-bold uppercase tracking-wide text-gray-400">View</td>
-              </tr>
-            );
-          })}
-          {!data.length && (
-            <tr>
-              <td colSpan="5" className="p-10 text-center text-sm text-gray-400">
-                No requests found
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  );
+  const navigate = useNavigate();
 
   return (
-    <div className="mx-auto max-w-7xl space-y-8 p-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+    <div className="p-6 space-y-6 bg-[#F8F9FD] min-h-screen">
+      <button 
+        onClick={() => navigate('/dashboard')} 
+        className="group flex items-center text-xs font-black text-slate-400 hover:text-[#0f172a] transition-colors mb-2"
+      >
+        <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
+        BACK TO DASHBOARD
+      </button>
+
+      <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-4xl font-black uppercase tracking-tight text-[#1a2744]">Leave Management</h1>
-          <p className="mt-2 text-sm text-gray-500">
-            {canFinalApprove ? 'HR final approval queue and employee leave history.' : 'Track your leave and permission requests.'}
-          </p>
+          <h1 className="text-2xl font-black text-[#1E3A5F] tracking-tighter">LEAVE & PERMISSIONS</h1>
+          <p className="text-xs text-gray-400 font-bold uppercase tracking-widest">Workflow Management Engine</p>
         </div>
-        {!canFinalApprove && (
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="inline-flex items-center gap-2 rounded-2xl bg-[#1a2744] px-5 py-3 text-sm font-black uppercase tracking-[0.2em] text-white shadow-lg"
-          >
-            <CalendarDays size={16} />
-            Apply Leave
-          </button>
+        <div className="flex bg-white p-1 rounded-xl shadow-sm border border-gray-100">
+           {['MyLeaves', 'MyPermissions', 'TeamLeaves', 'TeamPermissions'].map(tab => (
+             (tab.startsWith('Team') && !isAdmin) ? null : (
+               <button 
+                 key={tab}
+                 onClick={() => setActiveTab(tab)}
+                 className={`px-4 py-2 rounded-lg text-xs font-black transition-all ${activeTab === tab ? 'bg-[#1E3A5F] text-white shadow-lg' : 'text-gray-400 hover:text-[#1E3A5F]'}`}
+               >
+                 {tab.replace(/([A-Z])/g, ' $1').toUpperCase()}
+               </button>
+             )
+           ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        {loading && activeTab.startsWith('My') ? (
+          <DashboardWidgetSkeleton />
+        ) : activeTab.startsWith('My') && (
+           <>
+             {balances.map(b => (
+               <div key={b.id} className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                    <Calendar size={64} />
+                  </div>
+                  <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">{b.leave_type}</p>
+                  <h3 className="text-3xl font-black text-[#1E3A5F]">{b.remaining} <span className="text-xs text-gray-400 font-bold">/ {b.total}</span></h3>
+                  <div className="mt-4 h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-500" style={{ width: `${(b.remaining/b.total)*100}%` }}></div>
+                  </div>
+               </div>
+             ))}
+             <button 
+               onClick={() => activeTab === 'MyLeaves' ? setIsModalOpen(true) : setIsPermissionModalOpen(true)}
+               className="bg-[#1E3A5F] p-6 rounded-3xl text-white flex flex-col items-center justify-center gap-2 hover:bg-[#2A4D7C] transition-all shadow-xl group"
+             >
+               <Plus className="group-hover:rotate-90 transition-transform" />
+               <span className="font-bold text-sm uppercase tracking-tighter">Apply New</span>
+             </button>
+           </>
         )}
       </div>
 
-      {renderBalanceCards()}
+      {activeTab.startsWith('Team') && (
+        <div className="bg-white p-4 rounded-2xl border border-gray-100 flex items-center justify-between shadow-sm">
+           <div className="flex items-center gap-3">
+             <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Users size={18} /></div>
+             <select value={selectedEmployee} onChange={e => setSelectedEmployee(e.target.value)} className="text-sm font-bold bg-transparent border-none focus:ring-0">
+               <option value="all">ALL EMPLOYEES OVERVIEW</option>
+               {allEmployees.map(e => <option key={e.employee_id} value={e.employee_id}>{e.full_name} ({e.employee_id})</option>)}
+             </select>
+           </div>
+        </div>
+      )}
 
-      <div className="flex flex-wrap gap-6 border-b border-gray-100">
-        {tabs.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`pb-4 text-xs font-black uppercase tracking-[0.2em] ${
-              activeTab === tab ? 'border-b-2 border-[#1a2744] text-[#1a2744]' : 'text-gray-400'
-            }`}
-          >
-            {tab.replace(/([A-Z])/g, ' $1').trim()}
-          </button>
-        ))}
+      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+        <table className="w-full text-left text-xs border-collapse">
+           <thead>
+             <tr className="bg-gray-50/50 text-gray-400 font-black uppercase tracking-tighter border-b border-gray-100">
+                {activeTab.startsWith('Team') && <th className="p-5">Employee & Dept</th>}
+                <th className="p-5">{activeTab.includes('Leaves') ? 'Leave Type' : 'Date'}</th>
+                <th className="p-5">{activeTab.includes('Leaves') ? 'From | To' : 'Time (Start - End)'}</th>
+                <th className="p-5">{activeTab.includes('Leaves') ? 'Total Days' : 'Duration'}</th>
+                <th className="p-5">Reason</th>
+                <th className="p-5">Applied On</th>
+                <th className="p-5 text-center">Status</th>
+                {activeTab.startsWith('Team') && <th className="p-5 text-right">Actions</th>}
+             </tr>
+           </thead>
+           <tbody className="divide-y divide-gray-50 font-bold text-[#1E3A5F]">
+              {(activeTab.includes('Leaves') ? requests : permissionRequests).map(req => {
+                const isHighlighted = String(req.id) === String(highlightId);
+
+                return (
+                <tr
+                  key={req.id}
+                  data-request-row={`${activeTab}-${req.id}`}
+                  onClick={() => openRequestDetail(req)}
+                  className={`cursor-pointer transition-colors ${isHighlighted ? 'bg-amber-50 shadow-[inset_4px_0_0_0_#f59e0b]' : 'hover:bg-blue-50/10'}`}
+                >
+                   {activeTab.startsWith('Team') && (
+                     <td className="p-5">
+                       <p>{req.employees?.full_name}</p>
+                       <p className="text-[10px] text-gray-400 font-medium uppercase">{req.employees?.department}</p>
+                     </td>
+                   )}
+                   <td className="p-5">
+                     <div className="flex items-center gap-2">
+                       {activeTab.includes('Leaves') ? <FileSignature size={14} className="text-blue-400" /> : <Clock size={14} className="text-orange-400" />}
+                       {activeTab.includes('Leaves') ? req.leave_type : format(parseISO(req.date), 'dd MMM yyyy')}
+                     </div>
+                   </td>
+                   <td className="p-5">
+                     {activeTab.includes('Leaves') ? `${req.start_date} | ${req.end_date}` : `${req.start_time} - ${req.end_time}`}
+                   </td>
+                   <td className="p-5">
+                     {activeTab.includes('Leaves') ? `${calculateDays(req.start_date, req.end_date, req.employees?.department)} Days` : `${req.duration_minutes} Mins`}
+                   </td>
+                   <td className="p-5 max-w-[200px] truncate" title={req.reason}>
+                     {req.reason}
+                   </td>
+                   <td className="p-5 text-gray-400 uppercase text-[10px]">
+                     {format(new Date(req.created_at), 'dd MMM | HH:mm')}
+                   </td>
+                   <td className="p-5 text-center"><StatusBadge status={req.status} /></td>
+                   {activeTab.startsWith('Team') && (
+                     <td className="p-5">
+                       {req.status?.toLowerCase() === 'pending' && (
+                         <div className="flex justify-end gap-2">
+                           <button onClick={(event) => { event.stopPropagation(); handleApprove(req, activeTab.includes('Leaves') ? 'leave' : 'permission'); }} className="p-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-600 hover:text-white transition-all"><CheckCircle size={16} /></button>
+                           <button onClick={(event) => { event.stopPropagation(); handleRejectClick(req, activeTab.includes('Leaves') ? 'leave' : 'permission'); }} className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-600 hover:text-white transition-all"><XCircle size={16} /></button>
+                         </div>
+                       )}
+                     </td>
+                   )}
+                </tr>
+              )})}
+           </tbody>
+        </table>
+        {loading && (
+          <div className="p-5">
+            <TableSkeleton columns={activeTab.startsWith('Team') ? 8 : 6} rows={6} />
+          </div>
+        )}
+        {!loading && (activeTab.includes('Leaves') ? requests : permissionRequests).length === 0 && (
+          <div className="p-20 text-center text-gray-300">
+            <AlertCircle className="mx-auto mb-2 opacity-20" size={48} />
+            <p className="font-black italic">NO DATA FLOWING THROUGH THIS CHANNEL</p>
+          </div>
+        )}
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center rounded-3xl bg-white p-16 text-gray-400 shadow-sm">
-          <Clock3 className="mr-3 animate-spin" size={22} />
-          Loading requests...
-        </div>
-      ) : activeTab === 'MyLeaves' || activeTab === 'TeamLeaves' ? (
-        renderRequestsTable(requests, 'leave')
-      ) : (
-        renderRequestsTable(permissionRequests, 'permission')
-      )}
-
-      {selectedRequest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-2xl rounded-3xl bg-white p-8 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.25em] text-gray-400">
-                  {selectedType === 'leave' ? 'Leave Request' : 'Permission Request'}
-                </p>
-                <h2 className="mt-2 text-2xl font-black text-[#1a2744]">
-                  {selectedRequest.employees?.full_name || selectedRequest.employee_id}
-                </h2>
-                <p className="mt-2 text-sm text-gray-500">{approvalSummary(selectedRequest)}</p>
-              </div>
-              <button onClick={() => setSelectedRequest(null)} className="rounded-full p-2 text-gray-400 hover:bg-gray-100">
-                <XCircle size={22} />
-              </button>
-            </div>
-
-            <div className="mt-6 grid gap-4 rounded-2xl bg-gray-50 p-5 md:grid-cols-2">
-              <div className="flex items-start gap-3">
-                <FileText className="mt-0.5 text-[#1a2744]" size={18} />
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-gray-400">Reason</p>
-                  <p className="mt-1 text-sm text-gray-700">{selectedRequest.reason || 'No reason provided'}</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3">
-                <CalendarDays className="mt-0.5 text-[#1a2744]" size={18} />
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-gray-400">Request Window</p>
-                  <p className="mt-1 text-sm text-gray-700">
-                    {selectedType === 'leave'
-                      ? `${format(parseISO(selectedRequest.start_date), 'dd MMM yyyy')} - ${format(parseISO(selectedRequest.end_date), 'dd MMM yyyy')}`
-                      : `${format(parseISO(selectedRequest.date), 'dd MMM yyyy')} | ${String(selectedRequest.start_time || '--').slice(0, 5)} - ${String(selectedRequest.end_time || '--').slice(0, 5)}`}
-                  </p>
-                </div>
-              </div>
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-gray-400">Level 1 Approver</p>
-                <p className="mt-1 text-sm text-gray-700">{selectedRequest.level_1_approver_id || 'Not assigned'}</p>
-              </div>
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-gray-400">Current Status</p>
-                <div className="mt-2">
-                  <span className={`rounded-full px-3 py-1 text-[11px] font-black uppercase ${getStatusMeta(selectedRequest).className}`}>
-                    {getStatusMeta(selectedRequest).label}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {selectedRequest.level_1_remarks && (
-              <div className="mt-4 rounded-2xl border border-gray-100 bg-white p-4">
-                <p className="text-xs font-black uppercase tracking-[0.2em] text-gray-400">Previous Remarks</p>
-                <p className="mt-2 text-sm text-gray-600">{selectedRequest.level_1_remarks}</p>
-              </div>
-            )}
-
-            {canFinalApprove && canHrProcessRequest(selectedRequest) && (
-              <div className="mt-6 space-y-4 border-t border-gray-100 pt-6">
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setApprovalAction('approve')}
-                    className={`flex-1 rounded-2xl px-4 py-3 text-sm font-black uppercase tracking-[0.2em] ${
-                      approvalAction === 'approve' ? 'bg-green-600 text-white' : 'bg-green-50 text-green-700'
-                    }`}
-                  >
-                    <CheckCircle2 className="mr-2 inline" size={16} />
-                    Approve
-                  </button>
-                  <button
-                    onClick={() => setApprovalAction('reject')}
-                    className={`flex-1 rounded-2xl px-4 py-3 text-sm font-black uppercase tracking-[0.2em] ${
-                      approvalAction === 'reject' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700'
-                    }`}
-                  >
-                    <XCircle className="mr-2 inline" size={16} />
-                    Reject
-                  </button>
-                </div>
-                <textarea
-                  value={approvalRemarks}
-                  onChange={(event) => setApprovalRemarks(event.target.value)}
-                  placeholder={approvalAction === 'reject' ? 'Rejection remarks are required' : 'Remarks (optional)'}
-                  className="min-h-[120px] w-full rounded-2xl border border-gray-200 p-4 text-sm outline-none focus:border-[#1a2744]"
-                />
-                <button
-                  onClick={handleProcessApproval}
-                  disabled={isSubmitting}
-                  className={`w-full rounded-2xl px-4 py-3 text-sm font-black uppercase tracking-[0.2em] text-white ${
-                    approvalAction === 'approve' ? 'bg-[#1a2744]' : 'bg-red-600'
-                  } disabled:cursor-not-allowed disabled:opacity-60`}
-                >
-                  {isSubmitting ? 'Processing...' : `Confirm ${approvalAction}`}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
+      {/* LEAVE MODAL */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-3xl bg-white p-8 shadow-2xl">
-            <h2 className="text-2xl font-black text-[#1a2744]">Apply Leave</h2>
-            <form onSubmit={handleApplyLeave} className="mt-6 space-y-4">
-              <div>
-                <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-gray-400">Leave Type</label>
-                <select
-                  className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm"
-                  value={formData.leave_type}
-                  onChange={(event) => setFormData((current) => ({ ...current, leave_type: event.target.value }))}
-                >
-                  <option>Casual Leave</option>
-                  <option>Sick Leave</option>
-                  <option>Earned Leave</option>
-                  <option>Emergency Leave</option>
-                  <option>Loss of Pay</option>
-                </select>
-              </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-gray-400">Start Date</label>
-                  <input
-                    type="date"
-                    required
-                    className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm"
-                    value={formData.start_date}
-                    onChange={(event) => setFormData((current) => ({ ...current, start_date: event.target.value }))}
-                  />
-                </div>
-                <div>
-                  <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-gray-400">End Date</label>
-                  <input
-                    type="date"
-                    required
-                    className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm"
-                    value={formData.end_date}
-                    onChange={(event) => setFormData((current) => ({ ...current, end_date: event.target.value }))}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="mb-2 block text-xs font-black uppercase tracking-[0.2em] text-gray-400">Reason</label>
-                <textarea
-                  required
-                  rows="4"
-                  className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-sm"
-                  value={formData.reason}
-                  onChange={(event) => setFormData((current) => ({ ...current, reason: event.target.value }))}
-                />
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="flex-1 rounded-2xl border border-gray-200 px-4 py-3 text-sm font-bold text-gray-500">
-                  Cancel
-                </button>
-                <button type="submit" className="flex-1 rounded-2xl bg-[#1a2744] px-4 py-3 text-sm font-black uppercase tracking-[0.2em] text-white">
-                  Submit
-                </button>
-              </div>
-            </form>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+             <div className="bg-gray-50 px-8 py-6 flex justify-between items-center border-b">
+                <h2 className="text-xl font-black text-[#1E3A5F] tracking-tighter">LEAVE APPLICATION</h2>
+                <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-red-500"><X /></button>
+             </div>
+             <form onSubmit={handleApplyLeave} className="p-8 space-y-4">
+               <div className="space-y-1">
+                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Type of Leave</label>
+                  <select required className="w-full h-12 px-4 rounded-xl border border-gray-100 bg-gray-50 font-bold" value={formData.leave_type} onChange={e=>setFormData({...formData, leave_type: e.target.value})}>
+                     <option>Casual Leave</option>
+                     <option>Sick Leave</option>
+                     <option>Earned Leave</option>
+                     <option>Loss of Pay (LOP)</option>
+                     <option>Maternity Leave</option>
+                     <option>Paternity Leave</option>
+                     <option>Compensatory Off (Comp Off)</option>
+                     <option>Marriage Leave</option>
+                     <option>Bereavement Leave</option>
+                     <option>Emergency Leave</option>
+                     <option>Public Holiday</option>
+                     <option>Work From Home (WFH)</option>
+                  </select>
+               </div>
+               <div className="grid grid-cols-2 gap-4">
+                 <div className="space-y-1">
+                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Start Date</label>
+                   <input required type="date" className="w-full h-12 px-4 rounded-xl border border-gray-100 bg-gray-50 font-bold" value={formData.start_date} onChange={e=>setFormData({...formData, start_date: e.target.value})} />
+                 </div>
+                 <div className="space-y-1">
+                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">End Date</label>
+                   <input required type="date" className="w-full h-12 px-4 rounded-xl border border-gray-100 bg-gray-50 font-bold" value={formData.end_date} onChange={e=>setFormData({...formData, end_date: e.target.value})} />
+                 </div>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Detailed Reason</label>
+                 <textarea required rows="3" className="w-full px-4 py-3 rounded-xl border border-gray-100 bg-gray-50 font-bold" value={formData.reason} onChange={e=>setFormData({...formData, reason: e.target.value})} placeholder="Explain your requirement clearly..." />
+               </div>
+               <button type="submit" className="w-full py-4 bg-[#1E3A5F] text-white rounded-2xl font-black shadow-xl hover:translate-y-[-2px] transition-all">TRANSMIT REQUEST</button>
+             </form>
           </div>
         </div>
       )}
+
+      {/* PERMISSION MODAL */}
+      {isPermissionModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
+             <div className="bg-gray-50 px-8 py-6 flex justify-between items-center border-b">
+                <h2 className="text-xl font-black text-[#1E3A5F] tracking-tighter">PERMISSION REQUEST</h2>
+                <button onClick={() => setIsPermissionModalOpen(false)} className="text-gray-400 hover:text-red-500"><X /></button>
+             </div>
+             <form onSubmit={handleApplyPermission} className="p-8 space-y-4">
+               <div className="space-y-1">
+                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Date of Permission</label>
+                 <input required type="date" className="w-full h-12 px-4 rounded-xl border border-gray-100 bg-gray-50 font-bold" value={permFormData.date} onChange={e=>setPermFormData({...permFormData, date: e.target.value})} />
+               </div>
+               <div className="grid grid-cols-2 gap-4">
+                 <div className="space-y-1">
+                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Start Time</label>
+                   <input required type="time" className="w-full h-12 px-4 rounded-xl border border-gray-100 bg-gray-50 font-bold" value={permFormData.start_time} onChange={e=>setPermFormData({...permFormData, start_time: e.target.value})} />
+                 </div>
+                 <div className="space-y-1">
+                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">End Time</label>
+                   <input required type="time" className="w-full h-12 px-4 rounded-xl border border-gray-100 bg-gray-50 font-bold" value={permFormData.end_time} onChange={e=>setPermFormData({...permFormData, end_time: e.target.value})} />
+                 </div>
+               </div>
+               <div className="space-y-1">
+                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Reason Category</label>
+                 <select required className="w-full h-12 px-4 rounded-xl border border-gray-100 bg-gray-50 font-bold" value={permFormData.reason} onChange={e=>setPermFormData({...permFormData, reason: e.target.value})}>
+                    {['Medical Appointment', 'Family Emergency', 'Bank Work', 'Government Office Work', 'Vehicle Breakdown', 'Child School Work', 'Personal Health Issue', 'Home Emergency', 'Court/Legal Work', 'Others'].map(r => <option key={r} value={r}>{r}</option>)}
+                 </select>
+               </div>
+               {permFormData.reason === 'Others' && (
+                 <div className="space-y-1">
+                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Specify Reason</label>
+                   <input required type="text" className="w-full h-12 px-4 rounded-xl border border-gray-100 bg-gray-50 font-bold" value={permFormData.otherReason} onChange={e=>setPermFormData({...permFormData, otherReason: e.target.value})} />
+                 </div>
+               )}
+               <div className="space-y-1">
+                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Additional Remarks</label>
+                 <input type="text" className="w-full h-12 px-4 rounded-xl border border-gray-100 bg-gray-50 font-bold" value={permFormData.remarks} onChange={e=>setPermFormData({...permFormData, remarks: e.target.value})} />
+               </div>
+               <button type="submit" className="w-full py-4 bg-orange-500 text-white rounded-2xl font-black shadow-xl hover:translate-y-[-2px] transition-all">SUBMIT PERMISSION</button>
+             </form>
+          </div>
+        </div>
+      )}
+
+      {/* REJECT MODAL */}
+      {isRejectModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 border-2 border-red-50">
+             <div className="flex items-center gap-3 text-red-600 mb-6">
+                <AlertCircle size={24} />
+                <h2 className="text-xl font-black tracking-tighter uppercase">Rejection Reason</h2>
+             </div>
+             <form onSubmit={handleRejectSubmit} className="space-y-4">
+                <div className="space-y-1">
+                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Explanation <span className="text-red-500">*MANDATORY</span></label>
+                   <textarea required className="w-full px-4 py-3 rounded-xl border-2 border-red-50 bg-red-50/20 font-bold" rows="4" placeholder="Briefly explain why..." value={rejectForm.reason} onChange={e=>setRejectForm({...rejectForm, reason: e.target.value})}></textarea>
+                </div>
+                <div className="flex gap-3 pt-2">
+                   <button type="button" onClick={() => setIsRejectModalOpen(false)} className="flex-1 py-3 text-gray-400 font-bold hover:bg-gray-100 rounded-xl transition-all">CANCEL</button>
+                   <button 
+                     type="submit" 
+                     disabled={!rejectForm.reason.trim()}
+                     className={`flex-1 py-3 bg-red-600 text-white font-black rounded-xl shadow-lg transition-all ${!rejectForm.reason.trim() ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-700'}`}
+                   >
+                     REJECT
+                   </button>
+                </div>
+             </form>
+          </div>
+        </div>
+      )}
+
+      <RequestStatusModal
+        open={Boolean(selectedRequestDetail)}
+        request={selectedRequestDetail}
+        kind={activeTab.includes('Permissions') ? 'permission' : selectedRequestDetail?.leave_type ? 'leave' : 'permission'}
+        fallbackName={profile?.full_name}
+        onClose={() => setSelectedRequestDetail(null)}
+      />
     </div>
   );
-}
+};
+
+export default LeaveManagement;

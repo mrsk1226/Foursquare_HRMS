@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
-import '../services/auth_service.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+import '../blocs/auth_bloc.dart';
 import '../main.dart';
+import '../services/auth_service.dart';
+import '../widgets/brand_lockup.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -9,32 +14,61 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStateMixin {
+class _LoginScreenState extends State<LoginScreen>
+    with SingleTickerProviderStateMixin {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
-  late AnimationController _animationController;
-  late Animation<double> _logoFadeAnimation;
-  late Animation<Offset> _logoSlideAnimation;
-  late Animation<double> _formFadeAnimation;
-  late Animation<Offset> _formSlideAnimation;
+
+  late final AnimationController _animationController;
+  late final Animation<double> _headerFadeAnimation;
+  late final Animation<Offset> _headerSlideAnimation;
+  late final Animation<double> _formFadeAnimation;
+  late final Animation<Offset> _formSlideAnimation;
+  late final Animation<double> _footerFadeAnimation;
+  late final Animation<Offset> _footerSlideAnimation;
 
   @override
   void initState() {
     super.initState();
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 950),
     );
 
-    final logoCurve = CurvedAnimation(parent: _animationController, curve: Curves.easeOutCubic);
-    _logoFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(logoCurve);
-    _logoSlideAnimation = Tween<Offset>(begin: const Offset(0, -0.3), end: Offset.zero).animate(logoCurve);
+    final headerCurve = CurvedAnimation(
+      parent: _animationController,
+      curve: const Interval(0.0, 0.55, curve: Curves.easeOutCubic),
+    );
+    _headerFadeAnimation =
+        Tween<double>(begin: 0.0, end: 1.0).animate(headerCurve);
+    _headerSlideAnimation = Tween<Offset>(
+      begin: const Offset(0, -0.12),
+      end: Offset.zero,
+    ).animate(headerCurve);
 
-    final formCurve = CurvedAnimation(parent: _animationController, curve: const Interval(0.2, 1.0, curve: Curves.easeOutCubic));
-    _formFadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(formCurve);
-    _formSlideAnimation = Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(formCurve);
+    final formCurve = CurvedAnimation(
+      parent: _animationController,
+      curve: const Interval(0.18, 0.82, curve: Curves.easeOutCubic),
+    );
+    _formFadeAnimation =
+        Tween<double>(begin: 0.0, end: 1.0).animate(formCurve);
+    _formSlideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.08),
+      end: Offset.zero,
+    ).animate(formCurve);
+
+    final footerCurve = CurvedAnimation(
+      parent: _animationController,
+      curve: const Interval(0.46, 1.0, curve: Curves.easeOutCubic),
+    );
+    _footerFadeAnimation =
+        Tween<double>(begin: 0.0, end: 1.0).animate(footerCurve);
+    _footerSlideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.10),
+      end: Offset.zero,
+    ).animate(footerCurve);
 
     _animationController.forward();
   }
@@ -49,211 +83,389 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
 
   Future<void> _handleLogin() async {
     if (_isLoading) return;
+
     setState(() => _isLoading = true);
+
     try {
       await AuthService().signInWithEmailPassword(
         _emailController.text.trim(),
         _passwordController.text.trim(),
       );
-      if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const MainScreen()),
-          (route) => false,
-        );
-      }
+
+      if (!mounted) return;
+
+      context.read<AuthBloc>().add(HRMSAuthCheckRequested());
+
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const MainScreen()),
+        (route) => false,
+      );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Login failed: ${e.toString()}'), backgroundColor: Colors.red),
-        );
-      }
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Login failed: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
+  }
+
+  Widget _buildBackgroundOrb({
+    required double size,
+    required Color color,
+  }) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: color,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Column(
-                      children: [
-                        SizedBox(height: constraints.maxHeight * 0.15),
-                        FadeTransition(
-                          opacity: _logoFadeAnimation,
-                          child: SlideTransition(
-                            position: _logoSlideAnimation,
-                            child: Column(
-                              children: [
-                                Image.asset(
-                                  'assets/images/Four Square Logo blue.png',
-                                  width: 220,
-                                  fit: BoxFit.contain,
-                                ),
-                                const SizedBox(height: 8),
-                                const Text(
-                                  'HRMS',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Colors.grey,
-                                    letterSpacing: 3.0,
-                                    fontWeight: FontWeight.w400,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        SizedBox(height: constraints.maxHeight * 0.05),
-                        FadeTransition(
-                          opacity: _formFadeAnimation,
-                          child: SlideTransition(
-                            position: _formSlideAnimation,
-                            child: Column(
-                              children: [
-                                const Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: Text(
-                                    'Welcome Back',
-                                    style: TextStyle(
-                                      fontSize: 24,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF333333),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                const Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: Text(
-                                    'Sign in to your account',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      color: Colors.grey,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 32),
-                                TextField(
-                                  controller: _emailController,
-                                  decoration: InputDecoration(
-                                    hintText: 'Email address',
-                                    prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFF1E3A5F)),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
-                                    ),
-                                  ),
-                                  keyboardType: TextInputType.emailAddress,
-                                ),
-                                const SizedBox(height: 16),
-                                TextField(
-                                  controller: _passwordController,
-                                  obscureText: _obscurePassword,
-                                  decoration: InputDecoration(
-                                    hintText: 'Password',
-                                    prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF1E3A5F)),
-                                    suffixIcon: IconButton(
-                                      icon: Icon(
-                                        _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                                        color: Colors.grey,
-                                      ),
-                                      onPressed: () {
-                                        setState(() {
-                                          _obscurePassword = !_obscurePassword;
-                                        });
-                                      },
-                                    ),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: const BorderSide(color: Color(0xFFE0E0E0)),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: TextButton(
-                                    onPressed: () {},
-                                    child: const Text(
-                                      'Forgot Password?',
-                                      style: TextStyle(color: Color(0xFF1E3A5F)),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 24),
-                                SizedBox(
-                                  width: double.infinity,
-                                  height: 52,
-                                  child: ElevatedButton(
-                                    onPressed: _isLoading ? null : _handleLogin,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF1E3A5F),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                    ),
-                                    child: _isLoading
-                                        ? const SizedBox(
-                                            height: 24,
-                                            width: 24,
-                                            child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                                          )
-                                        : const Text(
-                                            'Sign In',
-                                            style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
-                                          ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
+      body: DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFFFFFFFF),
+              Color(0xFFF6FAFF),
+              Color(0xFFEAF2FB),
+            ],
+          ),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned(
+              top: -120,
+              right: -42,
+              child: _buildBackgroundOrb(
+                size: 280,
+                color: const Color(0x141E3A5F),
+              ),
+            ),
+            Positioned(
+              bottom: -70,
+              left: -28,
+              child: _buildBackgroundOrb(
+                size: 220,
+                color: const Color(0x122E86AB),
+              ),
+            ),
+            Positioned(
+              top: 132,
+              left: -58,
+              child: _buildBackgroundOrb(
+                size: 150,
+                color: const Color(0x0D1E3A5F),
+              ),
+            ),
+            SafeArea(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final horizontalPadding =
+                      constraints.maxWidth < 560 ? 22.0 : 32.0;
+                  final verticalPadding =
+                      constraints.maxWidth < 560 ? 20.0 : 30.0;
+                  final minScrollableHeight =
+                      (constraints.maxHeight - (verticalPadding * 2))
+                          .clamp(0.0, double.infinity)
+                          .toDouble();
+
+                  return SingleChildScrollView(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: horizontalPadding,
+                      vertical: verticalPadding,
                     ),
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 24.0),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Text(
-                            'Powered by',
-                            style: TextStyle(color: Colors.grey, fontSize: 12),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: minScrollableHeight,
+                      ),
+                      child: IntrinsicHeight(
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Center(
+                                child: ConstrainedBox(
+                                  constraints:
+                                      const BoxConstraints(maxWidth: 468),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      FadeTransition(
+                                        opacity: _headerFadeAnimation,
+                                        child: SlideTransition(
+                                          position: _headerSlideAnimation,
+                                          child: const Padding(
+                                            padding: EdgeInsets.only(
+                                              top: 14,
+                                              left: 18,
+                                              right: 18,
+                                            ),
+                                            child: BrandLockup(
+                                              logoSize: 166,
+                                              titleSize: 30,
+                                              spacing: 14,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 28),
+                                      FadeTransition(
+                                        opacity: _formFadeAnimation,
+                                        child: SlideTransition(
+                                          position: _formSlideAnimation,
+                                          child: Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.fromLTRB(
+                                              24,
+                                              28,
+                                              24,
+                                              24,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color:
+                                                  Colors.white.withOpacity(0.90),
+                                              borderRadius:
+                                                  BorderRadius.circular(30),
+                                              border: Border.all(
+                                                color: Colors.white
+                                                    .withOpacity(0.92),
+                                                width: 1.1,
+                                              ),
+                                              boxShadow: const [
+                                                BoxShadow(
+                                                  color: Color(0x141E3A5F),
+                                                  blurRadius: 34,
+                                                  offset: Offset(0, 18),
+                                                ),
+                                              ],
+                                            ),
+                                            child: AutofillGroup(
+                                              child: Column(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    'Welcome Back',
+                                                    style: GoogleFonts.inter(
+                                                      fontSize: 28,
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                      color: const Color(
+                                                        0xFF20314D,
+                                                      ),
+                                                      height: 1.1,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 8),
+                                                  Text(
+                                                    'Sign in to continue to your HR workspace.',
+                                                    style: GoogleFonts.inter(
+                                                      fontSize: 14.5,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                      color: const Color(
+                                                        0xFF6B7A90,
+                                                      ),
+                                                      height: 1.45,
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 28),
+                                                  TextField(
+                                                    controller:
+                                                        _emailController,
+                                                    keyboardType: TextInputType
+                                                        .emailAddress,
+                                                    textInputAction:
+                                                        TextInputAction.next,
+                                                    autofillHints: const [
+                                                      AutofillHints.username,
+                                                    ],
+                                                    decoration:
+                                                        const InputDecoration(
+                                                      hintText:
+                                                          'Email address',
+                                                      prefixIcon: Icon(
+                                                        Icons.email_outlined,
+                                                        color:
+                                                            Color(0xFF1E3A5F),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 16),
+                                                  TextField(
+                                                    controller:
+                                                        _passwordController,
+                                                    obscureText:
+                                                        _obscurePassword,
+                                                    textInputAction:
+                                                        TextInputAction.done,
+                                                    autofillHints: const [
+                                                      AutofillHints.password,
+                                                    ],
+                                                    onSubmitted: (_) =>
+                                                        _handleLogin(),
+                                                    decoration:
+                                                        InputDecoration(
+                                                      hintText: 'Password',
+                                                      prefixIcon: const Icon(
+                                                        Icons.lock_outline,
+                                                        color:
+                                                            Color(0xFF1E3A5F),
+                                                      ),
+                                                      suffixIcon: IconButton(
+                                                        icon: Icon(
+                                                          _obscurePassword
+                                                              ? Icons
+                                                                  .visibility_off
+                                                              : Icons
+                                                                  .visibility,
+                                                          color: const Color(
+                                                            0xFF7B8798,
+                                                          ),
+                                                        ),
+                                                        onPressed: () {
+                                                          setState(() {
+                                                            _obscurePassword =
+                                                                !_obscurePassword;
+                                                          });
+                                                        },
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 8),
+                                                  Align(
+                                                    alignment:
+                                                        Alignment.centerRight,
+                                                    child: TextButton(
+                                                      onPressed: () {},
+                                                      style: TextButton
+                                                          .styleFrom(
+                                                        foregroundColor:
+                                                            const Color(
+                                                          0xFF1E3A5F,
+                                                        ),
+                                                        padding:
+                                                            const EdgeInsets
+                                                                .symmetric(
+                                                          horizontal: 4,
+                                                          vertical: 6,
+                                                        ),
+                                                      ),
+                                                      child: Text(
+                                                        'Forgot Password?',
+                                                        style:
+                                                            GoogleFonts.inter(
+                                                          fontSize: 13.5,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 18),
+                                                  SizedBox(
+                                                    width: double.infinity,
+                                                    height: 54,
+                                                    child: ElevatedButton(
+                                                      onPressed: _isLoading
+                                                          ? null
+                                                          : _handleLogin,
+                                                      child: _isLoading
+                                                          ? const SizedBox(
+                                                              height: 24,
+                                                              width: 24,
+                                                              child:
+                                                                  CircularProgressIndicator(
+                                                                color: Colors
+                                                                    .white,
+                                                                strokeWidth: 2,
+                                                              ),
+                                                            )
+                                                          : Text(
+                                                              'Sign In',
+                                                              style: GoogleFonts
+                                                                  .inter(
+                                                                fontSize: 16,
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w700,
+                                                                color: Colors
+                                                                    .white,
+                                                              ),
+                                                            ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              FadeTransition(
+                                opacity: _footerFadeAnimation,
+                                child: SlideTransition(
+                                  position: _footerSlideAnimation,
+                                  child: Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          'powered by',
+                                          textAlign: TextAlign.center,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w500,
+                                            color: const Color(0xFF7D8BA0),
+                                            letterSpacing: 0.2,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          'Four Square Fenestrattion',
+                                          textAlign: TextAlign.center,
+                                          style: GoogleFonts.inter(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.w600,
+                                            color: MyApp.primaryBlue,
+                                            letterSpacing: 0.1,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          SizedBox(height: 4),
-                          Text(
-                            'Four Square Fenestration',
-                            style: TextStyle(
-                              color: Color(0xFF1a2744),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
-                  ],
-                ),
+                  );
+                },
               ),
-            );
-          },
+            ),
+          ],
         ),
       ),
     );

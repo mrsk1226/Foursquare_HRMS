@@ -1,22 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'services/supabase_config.dart';
 import 'screens/splash_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/attendance_screen.dart';
 import 'screens/leave_screen.dart';
 import 'screens/announcements_screen.dart';
 import 'screens/profile_screen.dart';
+import 'services/supabase_config.dart';
+import 'widgets/app_drawer.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Supabase.initialize(
-    url: 'https://pycsrmvhztxihjdihbve.supabase.co',
-    anonKey: 'sb_publishable_Un8l50_1wRv3099cNjmZvA_q6Wm_im_',
-  );
+  await SupabaseConfig.initialize();
   await SharedPreferences.getInstance();
 
   runApp(const MyApp());
@@ -68,6 +65,13 @@ class _MainScreenState extends State<MainScreen> {
     ];
 
     return Scaffold(
+      drawer: AppDrawer(
+        selectedIndex: _selectedIndex,
+        onItemSelected: (index) {
+          Navigator.pop(context); // Close drawer
+          switchTab(index);
+        },
+      ),
       body: IndexedStack(
         index: _selectedIndex,
         children: pages,
@@ -80,11 +84,26 @@ class _MainScreenState extends State<MainScreen> {
         unselectedItemColor: Colors.grey,
         showUnselectedLabels: true,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), activeIcon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.event_available_outlined), activeIcon: Icon(Icons.event_available), label: 'Attendance'),
-          BottomNavigationBarItem(icon: Icon(Icons.event_busy_outlined), activeIcon: Icon(Icons.event_busy), label: 'Leave'),
-          BottomNavigationBarItem(icon: Icon(Icons.forum_outlined), activeIcon: Icon(Icons.forum), label: 'Engage'),
-          BottomNavigationBarItem(icon: Icon(Icons.person_pin_outlined), activeIcon: Icon(Icons.person_pin), label: 'Profile'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.home_outlined),
+              activeIcon: Icon(Icons.home),
+              label: 'Home'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.event_available_outlined),
+              activeIcon: Icon(Icons.event_available),
+              label: 'Attendance'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.event_busy_outlined),
+              activeIcon: Icon(Icons.event_busy),
+              label: 'Leave'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.forum_outlined),
+              activeIcon: Icon(Icons.forum),
+              label: 'Engage'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.person_pin_outlined),
+              activeIcon: Icon(Icons.person_pin),
+              label: 'Profile'),
         ],
       ),
     );
