@@ -101,6 +101,13 @@ function getFirstValue(record, keys, fallback = null) {
   return fallback;
 }
 
+async function runQuery(queryPromise, timeoutMs = 15000) {
+  const timed = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
+  );
+  return Promise.race([queryPromise, timed]);
+}
+
 function normalizeAnnouncement(item, index) {
   return {
     id: String(getFirstValue(item, ['id'], `announcement-${index}`)),
@@ -308,13 +315,28 @@ function ExecutiveOverview({ profile, onDataError }) {
 
       try {
         const today = new Date();
-        const [empRes, balRes, annRes] = await Promise.all([
-          supabase.from('employees').select('id, employee_id, full_name, dob, photo_url'),
-          supabase.from('leave_balances').select('*').eq('employee_id', profile.employee_id).eq('year', today.getFullYear()),
-          supabase.from('announcements').select('*').order('created_at', { ascending: false }).limit(4)
+        const [empResult, balResult, annResult] = await Promise.allSettled([
+          runQuery(supabase.from('employees').select('id, employee_id, full_name, dob, photo_url')),
+          runQuery(
+            supabase
+              .from('leave_balances')
+              .select('*')
+              .eq('employee_id', profile.employee_id)
+              .eq('year', today.getFullYear())
+          ),
+          runQuery(
+            supabase
+              .from('announcements')
+              .select('*')
+              .order('created_at', { ascending: false })
+              .limit(4)
+          )
         ]);
 
         if (!isActive) return;
+        const empRes = empResult.status === 'fulfilled' ? empResult.value : { data: [] };
+        const balRes = balResult.status === 'fulfilled' ? balResult.value : { data: [] };
+        const annRes = annResult.status === 'fulfilled' ? annResult.value : { data: [] };
 
         // Birthdays Logic
         const births = (empRes.data || []).flatMap(e => {
@@ -825,8 +847,17 @@ function LiveStats() {
       try {
         if (isActive) setLoading(true);
         const today = new Date().toISOString().split('T')[0];
-        const { data: attendance } = await supabase.from('attendance_logs').select('*').eq('date', today);
-        const { data: leaves } = await supabase.from('leave_requests').select('*').eq('status', 'Approved').lte('start_date', today).gte('end_date', today);
+        const { data: attendance } = await runQuery(
+          supabase.from('attendance_logs').select('*').eq('date', today)
+        );
+        const { data: leaves } = await runQuery(
+          supabase
+            .from('leave_requests')
+            .select('*')
+            .eq('status', 'approved')
+            .lte('start_date', today)
+            .gte('end_date', today)
+        );
         if (!isActive) return;
         setStats({
           loggedIn: (attendance || []).filter((item) => item.check_in && !item.check_out).length,
@@ -841,24 +872,11 @@ function LiveStats() {
     }
 
     fetchStats();
-    let channel;
-    try {
-        channel = supabase.channel('realtime-dashboard')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_logs' }, fetchStats)
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_requests' }, fetchStats)
-          .subscribe((status) => {
-            if (status === 'CHANNEL_ERROR' && !offlineToastShown.current) {
-                console.log('Supabase Realtime disconnected');
-                offlineToastShown.current = true;
-            }
-          });
-    } catch (err) {
-        console.error('Realtime subscription failed:', err);
-    }
+    const interval = window.setInterval(fetchStats, 60000);
 
     return () => {
       isActive = false;
-      if (channel) supabase.removeChannel(channel);
+      window.clearInterval(interval);
     };
   }, []);
 
