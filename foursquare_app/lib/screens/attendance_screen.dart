@@ -1,10 +1,10 @@
 ﻿import 'dart:async';
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../services/attendance_service.dart';
 import '../services/permission_service.dart';
 import '../services/supabase_config.dart';
 import '../widgets/app_drawer.dart';
@@ -31,7 +31,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   Map<String, dynamic>? _todayLog;
 
   Timer? _timer;
+  Timer? _refreshDebounce;
   Duration _elapsed = Duration.zero;
+  RealtimeChannel? _attendanceChannel;
 
   @override
   void initState() {
@@ -42,6 +44,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   @override
   void dispose() {
     _timer?.cancel();
+    _refreshDebounce?.cancel();
+    final channel = _attendanceChannel;
+    if (channel != null) {
+      SupabaseConfig.client.removeChannel(channel);
+    }
     super.dispose();
   }
 
@@ -64,6 +71,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       debugPrint('Employee ID: $_employeeId');
 
       await _loadTodayAttendance();
+      await AttendanceService.flushQueuedPunches(_employeeId!);
+      _startRealtime();
 
       _startTimerIfNeeded();
     } catch (e) {
@@ -116,29 +125,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         return;
       }
 
-      final today =
-          DateFormat('yyyy-MM-dd').format(DateTime.now());
-
-      final response =
-          await SupabaseConfig.withTimeout(
-        SupabaseConfig.client
-            .from('attendance_logs')
-            .select(
-              '''
-              id,
-              employee_id,
-              punch_in,
-              punch_out,
-              date,
-              status,
-              location,
-              office_name
-              ''',
-            )
-            .eq('employee_id', _employeeId!)
-            .eq('date', today)
-            .maybeSingle(),
-      );
+      final response = await AttendanceService.fetchToday(_employeeId!);
 
       debugPrint('Attendance fetch success');
       debugPrint('Attendance data: $response');
@@ -148,6 +135,8 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       setState(() {
         _todayLog = response;
       });
+
+      _startTimerIfNeeded();
     } catch (e) {
       debugPrint('Attendance fetch failed: $e');
 
@@ -180,14 +169,46 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
   }
 
+  void _startRealtime() {
+    if (_employeeId == null || _employeeId!.isEmpty) return;
+
+    final existing = _attendanceChannel;
+    if (existing != null) {
+      SupabaseConfig.client.removeChannel(existing);
+      _attendanceChannel = null;
+    }
+
+    _attendanceChannel = SupabaseConfig.client
+        .channel('attendance-mobile-${_employeeId!}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'attendance_logs',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'employee_id',
+            value: _employeeId!,
+          ),
+          callback: (_) {
+            _refreshDebounce?.cancel();
+            _refreshDebounce = Timer(const Duration(milliseconds: 350), () {
+              if (mounted) {
+                _loadTodayAttendance();
+              }
+            });
+          },
+        )
+        .subscribe();
+  }
+
   void _startTimerIfNeeded() {
     _timer?.cancel();
 
     final punchInStr =
-        _todayLog?['punch_in']?.toString();
+        _todayLog?['check_in']?.toString();
 
     final punchOutStr =
-        _todayLog?['punch_out']?.toString();
+        _todayLog?['check_out']?.toString();
 
     if (punchInStr == null || punchOutStr != null) {
       return;
@@ -255,48 +276,19 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
       final now = DateTime.now();
 
-      final today =
-          DateFormat('yyyy-MM-dd').format(now);
-
-      final nowIso =
-          now.toUtc().toIso8601String();
-
-      final locationText =
-          '${position.latitude},${position.longitude}';
-
       final hasPunchIn =
-          _todayLog?['punch_in'] != null;
+          _todayLog?['check_in'] != null;
 
       final hasPunchOut =
-          _todayLog?['punch_out'] != null;
+          _todayLog?['check_out'] != null;
 
       if (!hasPunchIn) {
         debugPrint('Punch In started');
 
-        final inserted =
-            await SupabaseConfig.withTimeout(
-          SupabaseConfig.client
-              .from('attendance_logs')
-              .insert({
-                'employee_id': _employeeId,
-                'punch_in': nowIso,
-                'date': today,
-                'status': 'present',
-                'location': locationText,
-              })
-              .select(
-                '''
-                id,
-                employee_id,
-                punch_in,
-                punch_out,
-                date,
-                status,
-                location,
-                office_name
-                ''',
-              )
-              .single(),
+        final inserted = await AttendanceService.punchIn(
+          _employeeId!,
+          lat: position.latitude,
+          lng: position.longitude,
         );
 
         if (!mounted) return;
@@ -318,34 +310,19 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       } else if (!hasPunchOut) {
         debugPrint('Punch Out started');
 
-        final logId = _todayLog?['id'];
-
-        if (logId == null) {
-          await _loadTodayAttendance();
-        }
-
-        final freshLogId = _todayLog?['id'];
-
-        if (freshLogId == null) {
-          throw Exception(
-            'Attendance log not found',
-          );
-        }
-
-        await SupabaseConfig.withTimeout(
-          SupabaseConfig.client
-              .from('attendance_logs')
-              .update({
-                'punch_out': nowIso,
-              })
-              .eq('id', freshLogId),
+        final updated = await AttendanceService.punchOut(
+          _employeeId!,
+          lat: position.latitude,
+          lng: position.longitude,
         );
-
-        await _loadTodayAttendance();
 
         _timer?.cancel();
 
         if (!mounted) return;
+
+        setState(() {
+          _todayLog = updated;
+        });
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -383,10 +360,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   String _statusLabel() {
     final hasPunchIn =
-        _todayLog?['punch_in'] != null;
+        _todayLog?['check_in'] != null;
 
     final hasPunchOut =
-        _todayLog?['punch_out'] != null;
+        _todayLog?['check_out'] != null;
 
     if (!hasPunchIn) {
       return 'Not Punched In';
@@ -404,10 +381,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
   String _timeLabel() {
     final hasPunchIn =
-        _todayLog?['punch_in'] != null;
+        _todayLog?['check_in'] != null;
 
     final hasPunchOut =
-        _todayLog?['punch_out'] != null;
+        _todayLog?['check_out'] != null;
 
     if (!hasPunchIn) {
       return '--:--:--';
@@ -429,11 +406,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     }
 
     final pIn = DateTime.tryParse(
-      _todayLog!['punch_in'].toString(),
+      _todayLog!['check_in'].toString(),
     )?.toLocal();
 
     final pOut = DateTime.tryParse(
-      _todayLog!['punch_out'].toString(),
+      _todayLog!['check_out'].toString(),
     )?.toLocal();
 
     if (pIn == null || pOut == null) {
@@ -448,10 +425,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   @override
   Widget build(BuildContext context) {
     final hasPunchIn =
-        _todayLog?['punch_in'] != null;
+        _todayLog?['check_in'] != null;
 
     final hasPunchOut =
-        _todayLog?['punch_out'] != null;
+        _todayLog?['check_out'] != null;
 
     final buttonColor = hasPunchIn
         ? const Color(0xFFD32F2F)
@@ -645,7 +622,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                   width: 6),
                               Expanded(
                                 child: Text(
-                                  'Punch In: ${_todayLog?['punch_in'] != null ? DateFormat('hh:mm a').format(DateTime.parse(_todayLog!['punch_in'].toString()).toLocal()) : '--'}',
+                                  'Punch In: ${_todayLog?['check_in'] != null ? DateFormat('hh:mm a').format(DateTime.parse(_todayLog!['check_in'].toString()).toLocal()) : '--'}',
                                 ),
                               ),
                             ],
@@ -662,7 +639,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                                   width: 6),
                               Expanded(
                                 child: Text(
-                                  'Punch Out: ${_todayLog?['punch_out'] != null ? DateFormat('hh:mm a').format(DateTime.parse(_todayLog!['punch_out'].toString()).toLocal()) : '--'}',
+                                  'Punch Out: ${_todayLog?['check_out'] != null ? DateFormat('hh:mm a').format(DateTime.parse(_todayLog!['check_out'].toString()).toLocal()) : '--'}',
                                 ),
                               ),
                             ],

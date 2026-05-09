@@ -4,6 +4,17 @@ import { useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase_client';
 import { useAuth } from '../context/AuthContext';
 import {
+  debounceRealtime,
+  fetchAttendanceRange,
+  fetchTodayAttendance,
+  getBrowserPosition,
+  getCheckIn,
+  getCheckOut,
+  punchIn,
+  punchOut,
+  withTimeout,
+} from '../lib/attendance';
+import {
   Activity, ChevronLeft, ChevronRight, Clock, FileText,
   ShieldCheck, LogIn, LogOut, CheckCircle, MapPin, RefreshCw,
   AlertCircle
@@ -14,8 +25,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Breadcrumb from '../components/Breadcrumb';
 import toast from 'react-hot-toast';
 
-const getCheckIn = (record) => record?.check_in || record?.punch_in || null;
-const getCheckOut = (record) => record?.check_out || record?.punch_out || null;
 const MotionDiv = motion.div;
 
 export default function Attendance() {
@@ -54,26 +63,13 @@ export default function Attendance() {
     return `${h}:${m}:${s}`;
   }, []);
 
-  const runQuery = useCallback(async (query, timeoutMs = 15000) => {
-    const timed = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
-    );
-    return Promise.race([query, timed]);
-  }, []);
+  const runQuery = useCallback((query, timeoutMs = 15000) => withTimeout(query, timeoutMs), []);
 
   const fetchTodayStatus = useCallback(async ({ showSpinner = true } = {}) => {
     if (!profile?.employee_id) return;
     if (showSpinner && isMountedRef.current) setLoadingPunch(true);
     try {
-      const today = format(new Date(), 'yyyy-MM-dd');
-      const { data, error } = await runQuery(
-        supabase
-          .from('attendance_logs')
-          .select('*')
-          .eq('employee_id', profile.employee_id)
-          .eq('date', today)
-          .maybeSingle()
-      );
+      const { data, error } = await fetchTodayAttendance(profile.employee_id);
 
       if (error) throw error;
 
@@ -122,11 +118,14 @@ export default function Attendance() {
   const fetchAttendance = useCallback(async () => {
     const firstDay = format(startOfMonth(currentMonth), 'yyyy-MM-dd');
     const lastDay = format(endOfMonth(currentMonth), 'yyyy-MM-dd');
-    let query = supabase.from('attendance_logs').select('*, employees(full_name)').gte('date', firstDay).lte('date', lastDay).order('date', { ascending: false });
-    if (!isAdmin) query = query.eq('employee_id', profile.employee_id);
-    const { data } = await runQuery(query);
+    const { data } = await fetchAttendanceRange({
+      employeeId: profile.employee_id,
+      firstDay,
+      lastDay,
+      isAdmin,
+    });
     setAttendance(data || []);
-  }, [currentMonth, isAdmin, profile?.employee_id, runQuery]);
+  }, [currentMonth, isAdmin, profile?.employee_id]);
 
   const fetchLeaves = useCallback(async () => {
     let query = supabase.from('leave_requests').select('*, employees(full_name)').order('created_at', { ascending: false });
@@ -185,11 +184,15 @@ export default function Attendance() {
     const scopedAttendanceOptions = filter ? { ...attendanceOptions, filter } : attendanceOptions;
     const scopedRequests = filter ? { filter } : {};
 
+    const scheduleRefresh = debounceRealtime(() => {
+      fetchAttendance();
+      fetchTodayStatus({ showSpinner: false });
+    });
+
     const channel = supabase
       .channel(`attendance-screen-${profile.employee_id}-${isAdmin ? 'admin' : 'employee'}`)
       .on('postgres_changes', scopedAttendanceOptions, () => {
-        fetchAttendance();
-        fetchTodayStatus({ showSpinner: false });
+        scheduleRefresh();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_requests', ...scopedRequests }, fetchLeaves)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'permissions', ...scopedRequests }, fetchPermissions)
@@ -220,27 +223,17 @@ export default function Attendance() {
 
   const handlePunchIn = async () => {
     if (!profile?.employee_id) return;
-    const now = new Date();
-    const today = format(now, 'yyyy-MM-dd');
-
     try {
       setLoadingPunch(true);
-      const { data, error } = await supabase
-        .from('attendance_logs')
-        .insert([{
-          employee_id: profile.employee_id,
-          check_in: now.toISOString(),
-          date: today,
-          status: 'present'
-        }])
-        .select()
-        .single();
+      const position = await getBrowserPosition();
+      const { data, error } = await punchIn(profile.employee_id, position);
 
       if (error) throw error;
 
       toast.success('Punched in successfully!');
+      const checkIn = getCheckIn(data) ? new Date(getCheckIn(data)) : new Date();
       setTodayRecord(data);
-      setPunchInTime(now);
+      setPunchInTime(checkIn);
       setIsPunchedIn(true);
       setIsPunchedOut(false);
       setElapsed(0);
@@ -260,18 +253,10 @@ export default function Attendance() {
 
   const handlePunchOut = async () => {
     if (!todayRecord?.id) return;
-    const now = new Date();
 
     try {
       setLoadingPunch(true);
-      const { data, error } = await supabase
-        .from('attendance_logs')
-        .update({
-          check_out: now.toISOString()
-        })
-        .eq('id', todayRecord.id)
-        .select()
-        .single();
+      const { data, error } = await punchOut(profile.employee_id, todayRecord);
 
       if (error) throw error;
 
@@ -279,7 +264,7 @@ export default function Attendance() {
       if (timerRef.current) clearInterval(timerRef.current);
 
       setTodayRecord(data);
-      setPunchOutTime(now);
+      setPunchOutTime(getCheckOut(data) ? new Date(getCheckOut(data)) : new Date());
       setIsPunchedOut(true);
       fetchAttendance();
     } catch (err) {

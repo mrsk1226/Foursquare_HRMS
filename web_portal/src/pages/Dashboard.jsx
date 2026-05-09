@@ -4,6 +4,7 @@ import { addDays, differenceInCalendarDays, format, isWithinInterval, formatDist
 import { AnimatePresence, Reorder, motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase_client';
+import { debounceRealtime, getCheckIn, getCheckOut } from '../lib/attendance';
 import { DashboardWidgetSkeleton, EmptyStatePanel, SkeletonBlock, StatsWidgetSkeleton } from '../components/ui/LoadingSkeleton';
 import { ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { 
@@ -842,13 +843,17 @@ function LiveStats() {
 
   useEffect(() => {
     let isActive = true;
+    let hasLoaded = false;
 
-    async function fetchStats() {
+    async function fetchStats({ silent = false } = {}) {
       try {
-        if (isActive) setLoading(true);
+        if (isActive && !silent && !hasLoaded) setLoading(true);
         const today = new Date().toISOString().split('T')[0];
         const { data: attendance } = await runQuery(
-          supabase.from('attendance_logs').select('*').eq('date', today)
+          supabase
+            .from('attendance_logs')
+            .select('id, employee_id, check_in, check_out, date, status')
+            .eq('date', today)
         );
         const { data: leaves } = await runQuery(
           supabase
@@ -860,23 +865,31 @@ function LiveStats() {
         );
         if (!isActive) return;
         setStats({
-          loggedIn: (attendance || []).filter((item) => item.check_in && !item.check_out).length,
+          loggedIn: (attendance || []).filter((item) => getCheckIn(item) && !getCheckOut(item)).length,
           presentToday: (attendance || []).filter((item) => item.status === 'present' || item.status === 'late').length,
           onLeave: (leaves || []).length,
         });
+        hasLoaded = true;
       } catch (error) {
         console.error(error);
       } finally {
-        if (isActive) setLoading(false);
+        if (isActive && !silent) setLoading(false);
       }
     }
 
     fetchStats();
-    const interval = window.setInterval(fetchStats, 60000);
+    const interval = window.setInterval(() => fetchStats({ silent: true }), 60000);
+    const scheduleRefresh = debounceRealtime(() => fetchStats({ silent: true }), 400);
+    const channel = supabase
+      .channel('dashboard-live-stats')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_logs' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leave_requests' }, scheduleRefresh)
+      .subscribe();
 
     return () => {
       isActive = false;
       window.clearInterval(interval);
+      supabase.removeChannel(channel);
     };
   }, []);
 

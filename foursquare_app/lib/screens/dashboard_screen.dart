@@ -1,195 +1,426 @@
-﻿import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
-import 'package:http/http.dart' as http;
-import 'package:shimmer/shimmer.dart';
+
+import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
+import 'package:shimmer/shimmer.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../services/attendance_service.dart';
 import '../services/supabase_config.dart';
 import '../widgets/app_drawer.dart';
 
 class DashboardScreen extends StatefulWidget {
   final Function(int)? switchTab;
-  const DashboardScreen({super.key, this.switchTab});
+
+  const DashboardScreen({
+    super.key,
+    this.switchTab,
+  });
+
   @override
-  State<DashboardScreen> createState() => _DashboardScreenState();
+  State<DashboardScreen> createState() =>
+      _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState
+    extends State<DashboardScreen> {
   String _displayName = '';
   String? _employeeId;
   String _designation = '';
   String _department = '';
+
   bool _isLoading = true;
+  bool _isFetchingData = false;
+  bool _hasInitLoaded = false;
+
   List<dynamic> _recentAnnouncements = [];
-  List<dynamic> _celebrations = [];
+
   Map<String, dynamic> _leaveBalance = {};
+
   Map<String, dynamic>? _todayAttendance;
+
   DateTime _now = DateTime.now();
+
   Timer? _clockTimer;
   Timer? _weatherTimer;
+  Timer? _refreshDebounce;
+  RealtimeChannel? _dashboardChannel;
+
   bool _weatherLoaded = false;
+
   String _weatherTemp = '';
   String _weatherCondition = '';
   String _weatherIcon = '';
-  bool _isFetchingData = false;
-  bool _hasInitLoaded = false;
+
   DateTime? _lastRefreshAt;
 
-  final List<Map<String, dynamic>> _allActions = [
-    {'key': 'Attendance', 'icon': Icons.access_time_rounded, 'desc': 'Punch In / Out', 'color': Color(0xFF1565C0)},
-    {'key': 'Leave', 'icon': Icons.calendar_month_rounded, 'desc': 'Apply for leave', 'color': Color(0xFF2E7D32)},
-    {'key': 'Payslip', 'icon': Icons.receipt_long_rounded, 'desc': 'Salary statements', 'color': Color(0xFFFF8C00)},
-    {'key': 'Profile', 'icon': Icons.person_rounded, 'desc': 'My profile', 'color': Color(0xFF00838F)},
-    {'key': 'Engage', 'icon': Icons.campaign_rounded, 'desc': 'Announcements', 'color': Color(0xFFE65100)},
+  final List<Map<String, dynamic>>
+      _allActions = [
+    {
+      'key': 'Attendance',
+      'icon': Icons.access_time_rounded,
+      'desc': 'Punch In / Out',
+      'color': const Color(0xFF1565C0),
+    },
+    {
+      'key': 'Leave',
+      'icon': Icons.calendar_month_rounded,
+      'desc': 'Apply Leave',
+      'color': const Color(0xFF2E7D32),
+    },
+    {
+      'key': 'Payslip',
+      'icon': Icons.receipt_long_rounded,
+      'desc': 'Salary',
+      'color': const Color(0xFFFF8C00),
+    },
+    {
+      'key': 'Profile',
+      'icon': Icons.person_rounded,
+      'desc': 'My Profile',
+      'color': const Color(0xFF00838F),
+    },
+    {
+      'key': 'Engage',
+      'icon': Icons.campaign_rounded,
+      'desc': 'Announcements',
+      'color': const Color(0xFFE65100),
+    },
   ];
 
   @override
   void initState() {
     super.initState();
-    _init();
-    _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted) setState(() => _now = DateTime.now());
-    });
-    _weatherTimer = Timer.periodic(const Duration(minutes: 30), (_) => _loadWeather());
+
+    _initialize();
+
+    _clockTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) {
+        if (!mounted) return;
+
+        setState(() {
+          _now = DateTime.now();
+        });
+      },
+    );
+
+    _weatherTimer = Timer.periodic(
+      const Duration(minutes: 30),
+      (_) => _loadWeather(),
+    );
   }
 
   @override
   void dispose() {
     _clockTimer?.cancel();
     _weatherTimer?.cancel();
+    _refreshDebounce?.cancel();
+    final channel = _dashboardChannel;
+    if (channel != null) {
+      SupabaseConfig.client.removeChannel(channel);
+    }
     super.dispose();
   }
 
-  Future<String?> _getEmployeeId() async {
-    return SupabaseConfig.getEmployeeId();
-  }
-
-  Future<void> _init() async {
+  Future<void> _initialize() async {
     await _loadEmployeeId();
-    await _fetchDashboardData();
-    await _loadWeather();
+
+    await Future.wait([
+      _fetchDashboardData(),
+      _loadWeather(),
+    ]);
   }
 
   Future<void> _loadEmployeeId() async {
     try {
-      final empId = await _getEmployeeId();
+      final empId =
+          await SupabaseConfig.getEmployeeId();
+
       if (!mounted) return;
-      setState(() => _employeeId = empId);
-    } catch (e) {
+
+      setState(() {
+        _employeeId = empId;
+      });
+
+      _startRealtime();
+    } catch (_) {
       if (!mounted) return;
-      setState(() => _employeeId = null);
+
+      setState(() {
+        _employeeId = null;
+      });
     }
   }
 
   Future<void> _loadWeather() async {
     try {
-      const lat = 11.3410; const lon = 77.7172;
-      final res = await http.get(Uri.parse(
-        'https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current_weather=true&timezone=Asia%2FKolkata&forecast_days=1'
-      )).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final cw = data['current_weather'];
-        final code = cw['weathercode'] as int;
-        final temp = cw['temperature'];
-        String icon; String condition;
-        if (code == 0) { icon = '☀️'; condition = 'Clear Sky'; }
-        else if (code <= 3) { icon = '⛅'; condition = 'Partly Cloudy'; }
-        else if (code <= 48) { icon = '🌫️'; condition = 'Foggy'; }
-        else if (code <= 67) { icon = '🌧️'; condition = 'Rainy'; }
-        else if (code <= 82) { icon = '🌦️'; condition = 'Showers'; }
-        else { icon = '⛈️'; condition = 'Thunderstorm'; }
-        if (mounted) setState(() { _weatherIcon = icon; _weatherCondition = condition; _weatherTemp = '${temp.toStringAsFixed(0)}°C'; _weatherLoaded = true; });
+      const lat = 11.3410;
+      const lon = 77.7172;
+
+      final response = await http
+          .get(
+            Uri.parse(
+              'https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current_weather=true&timezone=Asia%2FKolkata',
+            ),
+          )
+          .timeout(
+            const Duration(seconds: 10),
+          );
+
+      if (response.statusCode != 200) return;
+
+      final data = jsonDecode(response.body);
+
+      final currentWeather =
+          data['current_weather'];
+
+      final code =
+          currentWeather['weathercode'] as int;
+
+      final temp =
+          currentWeather['temperature'];
+
+      String icon;
+      String condition;
+
+      if (code == 0) {
+        icon = '☀️';
+        condition = 'Clear';
+      } else if (code <= 3) {
+        icon = '⛅';
+        condition = 'Cloudy';
+      } else if (code <= 48) {
+        icon = '🌫️';
+        condition = 'Fog';
+      } else if (code <= 67) {
+        icon = '🌧️';
+        condition = 'Rain';
+      } else if (code <= 82) {
+        icon = '🌦️';
+        condition = 'Showers';
+      } else {
+        icon = '⛈️';
+        condition = 'Storm';
       }
+
+      if (!mounted) return;
+
+      setState(() {
+        _weatherLoaded = true;
+        _weatherTemp =
+            '${temp.toStringAsFixed(0)}°C';
+        _weatherCondition = condition;
+        _weatherIcon = icon;
+      });
     } catch (_) {
       if (!mounted) return;
-      setState(() => _weatherLoaded = false);
+
+      setState(() {
+        _weatherLoaded = false;
+      });
     }
   }
 
   Future<void> _fetchDashboardData() async {
     if (_isFetchingData) return;
+
     if (_lastRefreshAt != null &&
-        DateTime.now().difference(_lastRefreshAt!) <
-            const Duration(milliseconds: 800)) {
+        DateTime.now().difference(
+              _lastRefreshAt!,
+            ) <
+            const Duration(seconds: 1)) {
       return;
     }
+
     _isFetchingData = true;
+
     _lastRefreshAt = DateTime.now();
 
     try {
-      if (_employeeId == null || _employeeId!.isEmpty) {
-        if (!mounted) return;
-        setState(() => _isLoading = false);
+      if (_employeeId == null ||
+          _employeeId!.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+
         return;
       }
-      final empData = await SupabaseConfig.withTimeout(
-        SupabaseConfig.client
-            .from('employees')
-            .select('full_name, designation, department')
-            .eq('employee_id', _employeeId!)
-            .maybeSingle(),
-      );
-      if (empData != null) {
-        _displayName = (empData['full_name'] ?? '').toString().split(' ').first;
-        _designation = empData['designation']?.toString() ?? '';
-        _department = empData['department']?.toString() ?? '';
-      }
-      final annRes = await SupabaseConfig.withTimeout(
-        SupabaseConfig.client
-            .from('announcements')
-            .select('id, title, content, created_at, priority')
-            .order('created_at', ascending: false)
-            .limit(3),
-      );
-      final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-      final attRes = await SupabaseConfig.withTimeout(
-        SupabaseConfig.client
-            .from('attendance_logs')
-            .select('punch_in, punch_out, status')
-            .eq('employee_id', _employeeId!)
-            .eq('date', today)
-            .maybeSingle(),
-      );
-      final leaveBalance = <String, dynamic>{
-        'Casual Leave': {'used': 0, 'total': 12},
-        'Sick Leave': {'used': 0, 'total': 12},
-        'Earned Leave': {'used': 0, 'total': 24},
-      };
-      try {
-        final leaveRes = await SupabaseConfig.withTimeout(
+
+      final futures = <Future<dynamic>>[
+        SupabaseConfig.withTimeout(
+          SupabaseConfig.client
+              .from('employees')
+              .select(
+                'full_name, designation, department',
+              )
+              .eq(
+                'employee_id',
+                _employeeId!,
+              )
+              .maybeSingle(),
+        ),
+
+        SupabaseConfig.withTimeout(
+          SupabaseConfig.client
+              .from('announcements')
+              .select(
+                'id, title, content, created_at, priority',
+              )
+              .order(
+                'created_at',
+                ascending: false,
+              )
+              .limit(3),
+        ),
+
+        SupabaseConfig.withTimeout(
+          AttendanceService.fetchToday(_employeeId!),
+        ),
+
+        SupabaseConfig.withTimeout(
           SupabaseConfig.client
               .from('leave_requests')
-              .select('leave_type, start_date, end_date')
-              .eq('employee_id', _employeeId!)
+              .select(
+                'leave_type, start_date, end_date',
+              )
+              .eq(
+                'employee_id',
+                _employeeId!,
+              )
               .eq('status', 'approved'),
+        ),
+      ];
+
+      final results =
+          await Future.wait<dynamic>(
+        futures,
+      );
+
+      final empData =
+          results[0]
+              as Map<String, dynamic>?;
+
+      final annRes =
+          results[1] as List<dynamic>;
+
+      final attRes =
+          results[2]
+              as Map<String, dynamic>?;
+
+      final leaveRes =
+          results[3] as List<dynamic>;
+
+      if (empData != null) {
+        _displayName =
+            (empData['full_name'] ?? '')
+                .toString()
+                .split(' ')
+                .first;
+
+        _designation =
+            empData['designation']
+                    ?.toString() ??
+                '';
+
+        _department =
+            empData['department']
+                    ?.toString() ??
+                '';
+      }
+
+      final leaveBalance =
+          <String, dynamic>{
+        'Casual Leave': {
+          'used': 0,
+          'total': 12,
+        },
+        'Sick Leave': {
+          'used': 0,
+          'total': 12,
+        },
+        'Earned Leave': {
+          'used': 0,
+          'total': 24,
+        },
+      };
+
+      for (final leave in leaveRes) {
+        final type =
+            leave['leave_type']
+                    ?.toString() ??
+                '';
+
+        final start =
+            DateTime.tryParse(
+          (leave['start_date'] ?? '')
+              .toString(),
         );
-        for (final l in leaveRes as List) {
-          final type = l['leave_type']?.toString() ?? '';
-          final s = DateTime.tryParse((l['start_date'] ?? '').toString());
-          final e = DateTime.tryParse((l['end_date'] ?? '').toString());
-          if (s != null && e != null && leaveBalance.containsKey(type)) {
-            leaveBalance[type]['used'] = (leaveBalance[type]['used'] as int) + e.difference(s).inDays + 1;
-          }
+
+        final end =
+            DateTime.tryParse(
+          (leave['end_date'] ?? '')
+              .toString(),
+        );
+
+        if (start != null &&
+            end != null &&
+            leaveBalance.containsKey(
+              type,
+            )) {
+          leaveBalance[type]['used'] =
+              (leaveBalance[type]['used']
+                      as int) +
+                  end
+                      .difference(start)
+                      .inDays +
+                  1;
         }
-      } catch (_) {}
+      }
+
       if (!mounted) return;
+
       setState(() {
-        _recentAnnouncements = annRes as List;
+        _recentAnnouncements = annRes;
+
         _todayAttendance = attRes;
+
         _leaveBalance = leaveBalance;
+
         _isLoading = false;
+
         _hasInitLoaded = true;
       });
     } catch (e) {
+      debugPrint(
+        'Dashboard fetch error: $e',
+      );
+
       if (!mounted) return;
+
       if (!_hasInitLoaded) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+        });
       }
-      if (SupabaseConfig.shouldShowNetworkMessage()) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(SupabaseConfig.normalizeError(e))),
+
+      if (SupabaseConfig
+          .shouldShowNetworkMessage()) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(
+          SnackBar(
+            behavior:
+                SnackBarBehavior.floating,
+            content: Text(
+              SupabaseConfig
+                  .normalizeError(e),
+            ),
+          ),
         );
       }
     } finally {
@@ -197,71 +428,244 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  void _startRealtime() {
+    if (_employeeId == null || _employeeId!.isEmpty) return;
+
+    final existing = _dashboardChannel;
+    if (existing != null) {
+      SupabaseConfig.client.removeChannel(existing);
+      _dashboardChannel = null;
+    }
+
+    void scheduleRefresh() {
+      _refreshDebounce?.cancel();
+      _refreshDebounce = Timer(const Duration(milliseconds: 450), () {
+        if (mounted) {
+          _fetchDashboardData();
+        }
+      });
+    }
+
+    final employeeFilter = PostgresChangeFilter(
+      type: PostgresChangeFilterType.eq,
+      column: 'employee_id',
+      value: _employeeId!,
+    );
+
+    _dashboardChannel = SupabaseConfig.client
+        .channel('dashboard-mobile-${_employeeId!}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'attendance_logs',
+          filter: employeeFilter,
+          callback: (_) => scheduleRefresh(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'leave_requests',
+          filter: employeeFilter,
+          callback: (_) => scheduleRefresh(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'announcements',
+          callback: (_) => scheduleRefresh(),
+        )
+        .subscribe();
+  }
+
   String _getGreeting() {
-    final h = DateTime.now().hour;
-    if (h < 12) return 'Good Morning,';
-    if (h < 17) return 'Good Afternoon,';
+    final hour = DateTime.now().hour;
+
+    if (hour < 12) {
+      return 'Good Morning,';
+    }
+
+    if (hour < 17) {
+      return 'Good Afternoon,';
+    }
+
     return 'Good Evening,';
   }
 
   void _navigateTo(String key) {
     switch (key) {
-      case 'Attendance': widget.switchTab?.call(1); break;
-      case 'Leave': widget.switchTab?.call(2); break;
-      case 'Engage': widget.switchTab?.call(3); break;
-      case 'Profile': widget.switchTab?.call(4); break;
+      case 'Attendance':
+        widget.switchTab?.call(1);
+        break;
+
+      case 'Leave':
+        widget.switchTab?.call(2);
+        break;
+
+      case 'Engage':
+        widget.switchTab?.call(3);
+        break;
+
+      case 'Profile':
+        widget.switchTab?.call(4);
+        break;
+
       default:
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Coming soon!')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(
+          const SnackBar(
+            content: Text('Coming soon!'),
+          ),
+        );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) return const Scaffold(backgroundColor: Color(0xFFF8FAFC), body: Center(child: CircularProgressIndicator(color: Color(0xFF1565C0))));
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor:
+            Color(0xFFF8FAFC),
+        body: Center(
+          child:
+              CircularProgressIndicator(
+            color: Color(0xFF1565C0),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
-      drawer: AppDrawer(selectedIndex: 0, switchTab: (i) => widget.switchTab?.call(i)),
-      floatingActionButton: _employeeId != null
-          ? FloatingActionButton(backgroundColor: const Color(0xFFFF8C00), onPressed: () => widget.switchTab?.call(1), child: const Icon(Icons.access_time_rounded))
-          : null,
+      backgroundColor:
+          const Color(0xFFF8FAFC),
+
+      drawer: AppDrawer(
+        selectedIndex: 0,
+        switchTab: (i) =>
+            widget.switchTab?.call(i),
+      ),
+
+      floatingActionButton:
+          _employeeId != null
+              ? FloatingActionButton(
+                  backgroundColor:
+                      const Color(
+                    0xFFFF8C00,
+                  ),
+                  onPressed: () =>
+                      widget.switchTab
+                          ?.call(1),
+                  child: const Icon(
+                    Icons
+                        .access_time_rounded,
+                  ),
+                )
+              : null,
+
       body: RefreshIndicator(
         onRefresh: _fetchDashboardData,
+
         child: CustomScrollView(
-          physics: const BouncingScrollPhysics(),
+          physics:
+              const BouncingScrollPhysics(),
+
           slivers: [
             SliverAppBar(
               floating: true,
-              backgroundColor: const Color(0xFF1a2744),
-              iconTheme: const IconThemeData(color: Colors.white),
-              title: Image.asset('assets/images/4 square White Colour.png', height: 32),
-              centerTitle: false,
+              backgroundColor:
+                  const Color(
+                0xFF1a2744,
+              ),
+
+              iconTheme:
+                  const IconThemeData(
+                color: Colors.white,
+              ),
+
+              title: Image.asset(
+                'assets/images/4 square White Colour.png',
+                height: 32,
+              ),
+
               actions: [
-                IconButton(icon: const Icon(Icons.notifications_none_rounded, color: Colors.white), onPressed: () {}),
+                IconButton(
+                  icon: const Icon(
+                    Icons
+                        .notifications_none_rounded,
+                    color: Colors.white,
+                  ),
+                  onPressed: () {},
+                ),
+
                 const SizedBox(width: 8),
               ],
             ),
+
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.all(20),
+                padding:
+                    const EdgeInsets.all(
+                  20,
+                ),
+
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment:
+                      CrossAxisAlignment
+                          .start,
+
                   children: [
                     _buildGreetingCard(),
-                    const SizedBox(height: 20),
+
+                    const SizedBox(
+                      height: 20,
+                    ),
+
                     _buildTodayStatusCard(),
-                    const SizedBox(height: 24),
-                    _sectionTitle('Daily Actions'),
-                    const SizedBox(height: 12),
+
+                    const SizedBox(
+                      height: 24,
+                    ),
+
+                    _sectionTitle(
+                      'Daily Actions',
+                    ),
+
+                    const SizedBox(
+                      height: 12,
+                    ),
+
                     _buildActionsGrid(),
-                    const SizedBox(height: 24),
-                    _sectionTitle('Leave Balance'),
-                    const SizedBox(height: 12),
+
+                    const SizedBox(
+                      height: 24,
+                    ),
+
+                    _sectionTitle(
+                      'Leave Balance',
+                    ),
+
+                    const SizedBox(
+                      height: 12,
+                    ),
+
                     _buildLeaveBalance(),
-                    const SizedBox(height: 24),
-                    _sectionTitle('Latest News'),
-                    const SizedBox(height: 12),
+
+                    const SizedBox(
+                      height: 24,
+                    ),
+
+                    _sectionTitle(
+                      'Latest News',
+                    ),
+
+                    const SizedBox(
+                      height: 12,
+                    ),
+
                     _buildNewsFeed(),
-                    const SizedBox(height: 40),
+
+                    const SizedBox(
+                      height: 40,
+                    ),
                   ],
                 ),
               ),
@@ -275,56 +679,80 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildGreetingCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF0F172A), Color(0xFF1E3A5F)]),
-        boxShadow: [BoxShadow(color: const Color(0xFF0F172A).withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 10))],
+
+      padding: const EdgeInsets.all(
+        24,
       ),
-      child: Stack(
+
+      decoration: BoxDecoration(
+        borderRadius:
+            BorderRadius.circular(28),
+
+        gradient:
+            const LinearGradient(
+          begin: Alignment.topLeft,
+          end:
+              Alignment.bottomRight,
+          colors: [
+            Color(0xFF0F172A),
+            Color(0xFF1E3A5F),
+          ],
+        ),
+      ),
+
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(children: [
-                Container(width: 6, height: 6, decoration: const BoxDecoration(color: Color(0xFF34D399), shape: BoxShape.circle)),
-                const SizedBox(width: 8),
-                Text('LIVE • DASHBOARD', style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.5), fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 2)),
-              ]),
-              const SizedBox(height: 16),
-              Text(_getGreeting(), style: GoogleFonts.inter(color: Colors.white, fontSize: 20, fontWeight: FontWeight.w500)),
-              const SizedBox(height: 4),
-              Shimmer.fromColors(
-                baseColor: Colors.white,
-                highlightColor: const Color(0xFF60A5FA),
-                child: Text(_displayName.isEmpty ? 'Employee' : _displayName, style: GoogleFonts.inter(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900, letterSpacing: -1)),
-              ),
-              if (_designation.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text('$_designation • $_department', style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.4), fontSize: 11)),
-              ],
-            ],
+          Text(
+            _getGreeting(),
+            style: GoogleFonts.inter(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight:
+                  FontWeight.w500,
+            ),
           ),
-          Positioned(
-            top: 0, right: 0,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(DateFormat('hh:mm a').format(_now), style: GoogleFonts.inter(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w900)),
-                Text(DateFormat('dd MMM').format(_now), style: GoogleFonts.inter(color: Colors.white.withValues(alpha: 0.4), fontSize: 10, letterSpacing: 1.5)),
-                if (_weatherLoaded) ...[
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(14)),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Text(_weatherIcon, style: const TextStyle(fontSize: 14)),
-                      const SizedBox(width: 4),
-                      Text(_weatherTemp, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w900)),
-                    ]),
-                  ),
-                ],
-              ],
+
+          const SizedBox(height: 4),
+
+          Shimmer.fromColors(
+            baseColor: Colors.white,
+            highlightColor:
+                const Color(
+              0xFF60A5FA,
+            ),
+
+            child: Text(
+              _displayName.isEmpty
+                  ? 'Employee'
+                  : _displayName,
+
+              style:
+                  GoogleFonts.inter(
+                color: Colors.white,
+                fontSize: 30,
+                fontWeight:
+                    FontWeight.w900,
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          Text(
+            [
+              if (_designation.isNotEmpty) _designation,
+              if (_department.isNotEmpty) _department,
+              DateFormat('EEE, dd MMM - hh:mm a').format(_now),
+              if (_weatherLoaded)
+                'Erode $_weatherTemp $_weatherCondition $_weatherIcon',
+            ].join('  |  '),
+            style: GoogleFonts.inter(
+              color: Colors.white.withValues(alpha: 0.78),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],
@@ -333,61 +761,117 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildTodayStatusCard() {
-    final hasIn = _todayAttendance?['punch_in'] != null;
-    final hasOut = _todayAttendance?['punch_out'] != null;
-    String status; Color statusColor; IconData statusIcon;
-    if (hasIn && hasOut) { status = 'Completed'; statusColor = Colors.green; statusIcon = Icons.check_circle_rounded; }
-    else if (hasIn) { status = 'Punched In'; statusColor = Colors.blue; statusIcon = Icons.login_rounded; }
-    else { status = 'Not Punched In'; statusColor = Colors.orange; statusIcon = Icons.access_time_rounded; }
-    String inTime = '--:--'; String outTime = '--:--';
-    if (hasIn) inTime = DateFormat('hh:mm a').format(DateTime.parse(_todayAttendance!['punch_in'].toString()).toLocal());
-    if (hasOut) outTime = DateFormat('hh:mm a').format(DateTime.parse(_todayAttendance!['punch_out'].toString()).toLocal());
-    return GestureDetector(
-      onTap: () => _navigateTo('Attendance'),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white, borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: statusColor.withValues(alpha: 0.3)),
-          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 10, offset: const Offset(0, 4))],
-        ),
-        child: Row(children: [
-          Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: statusColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(14)), child: Icon(statusIcon, color: statusColor, size: 24)),
-          const SizedBox(width: 14),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text("Today's Attendance", style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
-            const SizedBox(height: 2),
-            Text(status, style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 15)),
-          ])),
-          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Row(mainAxisSize: MainAxisSize.min, children: [Text('IN', style: TextStyle(color: Colors.green, fontSize: 9, fontWeight: FontWeight.bold)), const SizedBox(width: 4), Text(inTime, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11))]),
-            const SizedBox(height: 4),
-            Row(mainAxisSize: MainAxisSize.min, children: [Text('OUT', style: TextStyle(color: Colors.red, fontSize: 9, fontWeight: FontWeight.bold)), const SizedBox(width: 4), Text(outTime, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11))]),
-          ]),
-        ]),
+    final hasIn =
+        _todayAttendance?['check_in'] !=
+            null;
+
+    final hasOut =
+        _todayAttendance?['check_out'] !=
+            null;
+
+    String status;
+
+    if (hasIn && hasOut) {
+      status = 'Completed';
+    } else if (hasIn) {
+      status = 'Punched In';
+    } else {
+      status = 'Not Punched In';
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(
+        16,
+      ),
+
+      decoration: BoxDecoration(
+        color: Colors.white,
+
+        borderRadius:
+            BorderRadius.circular(20),
+      ),
+
+      child: Row(
+        children: [
+          const Icon(
+            Icons.access_time_rounded,
+          ),
+
+          const SizedBox(width: 12),
+
+          Expanded(
+            child: Text(
+              status,
+              style: const TextStyle(
+                fontWeight:
+                    FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildActionsGrid() {
     return GridView.builder(
-      shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 3, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 1.0),
+      shrinkWrap: true,
+
+      physics:
+          const NeverScrollableScrollPhysics(),
+
+      gridDelegate:
+          const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+      ),
+
       itemCount: _allActions.length,
+
       itemBuilder: (context, i) {
-        final action = _allActions[i]; final color = action['color'] as Color;
+        final action = _allActions[i];
+
+        final color =
+            action['color'] as Color;
+
         return GestureDetector(
-          onTap: () => _navigateTo(action['key'] as String),
+          onTap: () => _navigateTo(
+            action['key'] as String,
+          ),
+
           child: Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 8, offset: const Offset(0, 3))]),
-            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Container(padding: const EdgeInsets.all(10), decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)), child: Icon(action['icon'] as IconData, color: color, size: 22)),
-              const SizedBox(height: 8),
-              Text(action['key'] as String, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Color(0xFF1B2E4B))),
-              const SizedBox(height: 2),
-              Text(action['desc'] as String, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 9, color: Colors.grey.shade500)),
-            ]),
+            decoration: BoxDecoration(
+              color: Colors.white,
+
+              borderRadius:
+                  BorderRadius.circular(
+                20,
+              ),
+            ),
+
+            child: Column(
+              mainAxisAlignment:
+                  MainAxisAlignment
+                      .center,
+
+              children: [
+                Icon(
+                  action['icon']
+                      as IconData,
+                  color: color,
+                ),
+
+                const SizedBox(
+                  height: 8,
+                ),
+
+                Text(
+                  action['key']
+                      as String,
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -395,64 +879,139 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildLeaveBalance() {
-    final colors = [Colors.blue, Colors.teal, Colors.orange]; var idx = 0;
-    return Column(
-      children: _leaveBalance.entries.map((e) {
-        final color = colors[idx % colors.length]; idx++;
-        final used = e.value['used'] as int; final total = e.value['total'] as int;
-        final remaining = total - used; final progress = total > 0 ? (used / total).clamp(0.0, 1.0) : 0.0;
-        return GestureDetector(
-          onTap: () => _navigateTo('Leave'),
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 10), padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 8)]),
-            child: Column(children: [
-              Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1B2E4B))),
-                Row(children: [
-                  Text('$remaining remaining', style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold)),
-                  Text(' / $total', style: TextStyle(color: Colors.grey.shade400, fontSize: 11)),
-                ]),
-              ]),
-              const SizedBox(height: 8),
-              ClipRRect(borderRadius: BorderRadius.circular(4), child: LinearProgressIndicator(value: progress, backgroundColor: color.withValues(alpha: 0.1), valueColor: AlwaysStoppedAnimation<Color>(color), minHeight: 6)),
-            ]),
-          ),
-        );
-      }).toList(),
+    return Container(
+      padding: const EdgeInsets.all(
+        16,
+      ),
+
+      decoration: BoxDecoration(
+        color: Colors.white,
+
+        borderRadius:
+            BorderRadius.circular(16),
+      ),
+
+      child: Column(
+        children:
+            _leaveBalance.entries.map(
+          (e) {
+            return Padding(
+              padding:
+                  const EdgeInsets.only(
+                bottom: 10,
+              ),
+
+              child: Row(
+                mainAxisAlignment:
+                    MainAxisAlignment
+                        .spaceBetween,
+
+                children: [
+                  Text(e.key),
+
+                  Text(
+                    '${e.value['used']} / ${e.value['total']}',
+                  ),
+                ],
+              ),
+            );
+          },
+        ).toList(),
+      ),
     );
   }
 
   Widget _buildNewsFeed() {
     if (_recentAnnouncements.isEmpty) {
-      return Container(padding: const EdgeInsets.all(24), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)), child: const Center(child: Column(children: [Icon(Icons.campaign_outlined, size: 40, color: Colors.grey), SizedBox(height: 8), Text('No announcements yet', style: TextStyle(color: Colors.grey))])));
-    }
-    return Column(
-      children: _recentAnnouncements.map((ann) {
-        final priority = ann['priority']?.toString() ?? 'normal';
-        var pColor = Colors.blue;
-        if (priority == 'urgent') pColor = Colors.red;
-        if (priority == 'important') pColor = Colors.orange;
-        return GestureDetector(
-          onTap: () => _navigateTo('Engage'),
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 10), padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.grey.shade100), boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 6)]),
-            child: Row(children: [
-              Container(width: 44, height: 44, decoration: BoxDecoration(color: pColor.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)), child: Icon(Icons.campaign_rounded, color: pColor, size: 20)),
-              const SizedBox(width: 14),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text((ann['title'] ?? '').toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF1B2E4B))),
-                const SizedBox(height: 3),
-                Text((ann['content'] ?? '').toString(), maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
-              ])),
-              Icon(Icons.chevron_right_rounded, color: Colors.grey.shade300, size: 18),
-            ]),
+      return Container(
+        padding:
+            const EdgeInsets.all(24),
+
+        decoration: BoxDecoration(
+          color: Colors.white,
+
+          borderRadius:
+              BorderRadius.circular(
+            16,
           ),
-        );
-      }).toList(),
+        ),
+
+        child: const Center(
+          child: Text(
+            'No announcements',
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children:
+          _recentAnnouncements.map(
+        (ann) {
+          return Container(
+            margin:
+                const EdgeInsets.only(
+              bottom: 10,
+            ),
+
+            padding:
+                const EdgeInsets.all(
+              14,
+            ),
+
+            decoration: BoxDecoration(
+              color: Colors.white,
+
+              borderRadius:
+                  BorderRadius.circular(
+                16,
+              ),
+            ),
+
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment
+                      .start,
+
+              children: [
+                Text(
+                  (ann['title'] ?? '')
+                      .toString(),
+
+                  style:
+                      const TextStyle(
+                    fontWeight:
+                        FontWeight.bold,
+                  ),
+                ),
+
+                const SizedBox(
+                  height: 4,
+                ),
+
+                Text(
+                  (ann['content'] ?? '')
+                      .toString(),
+                ),
+              ],
+            ),
+          );
+        },
+      ).toList(),
     );
   }
 
-  Widget _sectionTitle(String title) => Text(title, style: GoogleFonts.inter(color: const Color(0xFF0F172A), fontSize: 18, fontWeight: FontWeight.w900));
+  Widget _sectionTitle(String title) {
+    return Text(
+      title,
+
+      style: GoogleFonts.inter(
+        color: const Color(
+          0xFF0F172A,
+        ),
+        fontSize: 18,
+        fontWeight: FontWeight.w900,
+      ),
+    );
+  }
 }

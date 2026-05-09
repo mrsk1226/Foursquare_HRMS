@@ -55,7 +55,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
 
       if (mounted) {
         setState(() {
-          _payrolls = res ?? [];
+          _payrolls = List<dynamic>.from(res);
           _isLoading = false;
         });
       }

@@ -318,7 +318,9 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
     Color priorityColor = Colors.blue;
     if (priority == 'urgent') {
       priorityColor = Colors.red;
-    } else if (priority == 'important') priorityColor = Colors.orange;
+    } else if (priority == 'important') {
+      priorityColor = Colors.orange;
+    }
 
     final commentController = TextEditingController();
 
@@ -439,7 +441,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                             size: 16,
                             color: isLiked ? Colors.blue : Colors.grey),
                         const SizedBox(width: 6),
-                        Text(isLiked ? 'Liked' : 'Like',
+                        Text(isLiked ? 'Liked ($likeCount)' : 'Like',
                             style: TextStyle(
                                 color: isLiked ? Colors.blue : Colors.grey,
                                 fontSize: 13,
