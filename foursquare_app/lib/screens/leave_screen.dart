@@ -1,11 +1,13 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../services/supabase_config.dart';
 import '../widgets/app_drawer.dart';
 
 class LeaveScreen extends StatefulWidget {
   final Function(int)? switchTab;
-  const LeaveScreen({Key? key, this.switchTab}) : super(key: key);
+  const LeaveScreen({super.key, this.switchTab});
 
   @override
   State<LeaveScreen> createState() => _LeaveScreenState();
@@ -13,7 +15,7 @@ class LeaveScreen extends StatefulWidget {
 
 class _LeaveScreenState extends State<LeaveScreen>
     with SingleTickerProviderStateMixin {
-  final supabase = Supabase.instance.client;
+  final supabase = SupabaseConfig.client;
 
   String? _employeeId;
   String _fullName = '';
@@ -31,7 +33,7 @@ class _LeaveScreenState extends State<LeaveScreen>
 
   late TabController _tabController;
 
-  // ─── Colours ───────────────────────────────────────────────
+  // â”€â”€â”€ Colours â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   static const _navy = Color(0xFF1a2744);
   static const _orange = Color(0xFFFF8C00);
 
@@ -45,39 +47,57 @@ class _LeaveScreenState extends State<LeaveScreen>
     _loadProfile();
   }
 
-  // ──────────────────────────────────────────────────────────
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // DATA LOADING
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<void> _loadProfile() async {
     try {
-      final user = supabase.auth.currentUser;
-      if (user == null) {
-        setState(() => _isLoading = false);
+      // SharedPreferences à®®à¯‚à®²à®®à¯ employee_id à®Žà®Ÿà¯ â€” profiles table à®‡à®²à¯à®²à¯ˆ
+      final prefs = await SharedPreferences.getInstance();
+      final empId = prefs.getString('employee_id') ?? '';
+
+      if (empId.isEmpty) {
+        if (mounted) setState(() => _isLoading = false);
         return;
       }
 
-      final profileData = await supabase
-          .from('profiles')
-          .select('employee_id, role')
-          .eq('id', user.id)
-          .single();
-
-      final empId = profileData['employee_id'];
-      final role = profileData['role'] ?? 'employee';
-
       final employeeData = await supabase
           .from('employees')
-          .select('full_name, department, manager')
+          .select('full_name, department, manager_employee_id, designation')
           .eq('employee_id', empId)
-          .single();
+          .maybeSingle();
+
+      if (employeeData == null) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+
+      // Role â€” designation à®ªà®¾à®°à¯à®¤à¯à®¤à¯ determine à®ªà®£à¯à®£à¯
+      final designation =
+          employeeData['designation']?.toString().toLowerCase() ?? '';
+      String role = 'employee';
+      if (designation.contains('hr') || empId == 'FSQ002') {
+        role = 'hr';
+      } else if (designation.contains('md') ||
+          designation.contains('director') ||
+          empId == 'FSQ000') {
+        role = 'md';
+      }
 
       if (mounted) {
         setState(() {
           _employeeId = empId;
-          _fullName = employeeData['full_name'] ?? '';
-          _department = employeeData['department'] ?? '';
-          _reportingManagerId = employeeData['manager'] ?? '';
+          _fullName = employeeData['full_name']?.toString() ?? '';
+          _department = employeeData['department']?.toString() ?? '';
+          _reportingManagerId =
+              employeeData['manager_employee_id']?.toString() ?? '';
           _userRole = role;
           _isLoading = false;
         });
@@ -86,11 +106,38 @@ class _LeaveScreenState extends State<LeaveScreen>
         _loadPermissions();
       }
     } catch (e) {
-      debugPrint("Error loading profile: $e");
+      debugPrint('Profile load error: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
+  Future<void> _loadLeaveTypes() async {
+    try {
+      final data = await supabase
+          .from('leave_types')
+          .select('name, max_days_per_year')
+          .eq('is_active', true)
+          .order('name');
+      if (mounted) setState(() => _leaveTypes = data);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _leaveTypes = [
+              {'name': 'Casual Leave'},
+              {'name': 'Sick Leave'},
+              {'name': 'Earned Leave'},
+              {'name': 'Loss of Pay (LOP)'},
+              {'name': 'Maternity Leave'},
+              {'name': 'Paternity Leave'},
+              {'name': 'Compensatory Off (Comp Off)'},
+              {'name': 'Marriage Leave'},
+              {'name': 'Bereavement Leave'},
+              {'name': 'Emergency Leave'},
+              {'name': 'Public Holiday'},
+              {'name': 'Work From Home (WFH)'},
+            ]);
+      }
+    }
+  }
 
   Future<void> _loadLeaveRequests() async {
     if (_employeeId == null) return;
@@ -108,6 +155,7 @@ class _LeaveScreenState extends State<LeaveScreen>
         });
       }
     } catch (e) {
+      debugPrint("Error loading leave requests: $e");
       if (mounted) setState(() => _isLeaveLoading = false);
     }
   }
@@ -128,19 +176,14 @@ class _LeaveScreenState extends State<LeaveScreen>
         });
       }
     } catch (e) {
+      debugPrint("Error loading permissions: $e");
       if (mounted) setState(() => _isPermLoading = false);
     }
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // BUILD
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   @override
   Widget build(BuildContext context) {
@@ -148,7 +191,7 @@ class _LeaveScreenState extends State<LeaveScreen>
       return Scaffold(
         drawer: AppDrawer(
           selectedIndex: 2,
-          onItemSelected: (i) => widget.switchTab?.call(i),
+          switchTab: (i) => widget.switchTab?.call(i),
         ),
         appBar: _appBar(),
         body: const Center(child: CircularProgressIndicator(color: _navy)),
@@ -159,7 +202,7 @@ class _LeaveScreenState extends State<LeaveScreen>
       backgroundColor: const Color(0xFFF5F7FA),
       drawer: AppDrawer(
         selectedIndex: 2,
-        onItemSelected: (i) => widget.switchTab?.call(i),
+        switchTab: (i) => widget.switchTab?.call(i),
       ),
       appBar: _appBar(withTabs: true),
       body: TabBarView(
@@ -212,9 +255,9 @@ class _LeaveScreenState extends State<LeaveScreen>
     );
   }
 
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // LEAVE TAB
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Widget _buildLeaveTab() {
     return RefreshIndicator(
@@ -237,27 +280,30 @@ class _LeaveScreenState extends State<LeaveScreen>
     );
   }
 
-  // ──────────────────────────────────────────────────────────
-  // LEAVE CARD  (2-stage status)
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // LEAVE CARD
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Widget _buildLeaveCard(dynamic leave) {
     final type = leave['leave_type'] ?? 'Casual Leave';
-    final status = (leave['status'] ?? 'pending').toLowerCase();
-    final hrStatus = (leave['hr_status'] ?? 'pending').toLowerCase();
-    final mdStatus = (leave['md_status'] ?? 'waiting').toLowerCase();
+
+    // FIX: Read actual status values correctly
+    final status = (leave['status'] ?? 'pending').toString().toLowerCase();
+    final hrStatus = (leave['hr_status'] ?? 'pending').toString().toLowerCase();
+    final mdStatus = (leave['md_status'] ?? 'pending').toString().toLowerCase();
 
     DateTime start =
         DateTime.tryParse(leave['start_date'] ?? '') ?? DateTime.now();
     DateTime end = DateTime.tryParse(leave['end_date'] ?? '') ?? DateTime.now();
     int days = end.difference(start).inDays + 1;
 
-    // Leave type colour
     final Map<String, Color> typeColors = {
       'Sick Leave': Colors.orange,
       'Earned Leave': Colors.green,
       'Emergency Leave': Colors.red,
       'Loss of Pay': Colors.grey,
+      'Loss of Pay (LOP)': Colors.grey,
+      'Casual Leave': Colors.blue,
     };
     final badgeColor = typeColors[type] ?? Colors.blue;
 
@@ -281,43 +327,41 @@ class _LeaveScreenState extends State<LeaveScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── Row 1: leave type + overall status ──
+              // Row 1: leave type + overall status
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   _typeBadge(type, badgeColor),
-                  _overallStatusBadge(status),
+                  _overallStatusBadge(status, hrStatus, mdStatus),
                 ],
               ),
               const SizedBox(height: 12),
-
-              // ── Dates ──
+              // Dates
               Row(
                 children: [
                   const Icon(Icons.calendar_today, size: 15, color: _navy),
                   const SizedBox(width: 6),
-                  Text(
-                    "${DateFormat('dd MMM').format(start)} → "
-                    "${DateFormat('dd MMM yyyy').format(end)}  "
-                    "($days ${days == 1 ? 'day' : 'days'})",
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: _navy),
+                  Expanded(
+                    child: Text(
+                      "${DateFormat('dd MMM').format(start)} â†’ "
+                      "${DateFormat('dd MMM yyyy').format(end)}  "
+                      "($days ${days == 1 ? 'day' : 'days'})",
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: _navy),
+                    ),
                   ),
                 ],
               ),
               const SizedBox(height: 6),
               Text(leave['reason'] ?? 'No reason provided',
                   style: TextStyle(color: Colors.grey[600], fontSize: 13)),
-
               const SizedBox(height: 12),
-
-              // ── 2-Stage progress bar ──
+              // 2-Stage progress bar
               _buildStageProgress(hrStatus, mdStatus, status),
-
-              // ── Rejection reason ──
-              if ((status == 'rejected') &&
+              // Rejection reason
+              if (status == 'rejected' &&
                   (leave['hr_remarks'] != null ||
                       leave['md_remarks'] != null)) ...[
                 const SizedBox(height: 10),
@@ -351,44 +395,49 @@ class _LeaveScreenState extends State<LeaveScreen>
     );
   }
 
-  Future<void> _loadLeaveTypes() async {
-    try {
-      final data = await supabase
-          .from('leave_types')
-          .select('name, max_days_per_year')
-          .eq('is_active', true)
-          .order('name');
-      if (mounted) setState(() => _leaveTypes = data);
-    } catch (e) {
-      // fallback to 12 defaults
-      if (mounted) {
-        setState(() => _leaveTypes = [
-              {'name': 'Casual Leave'},
-              {'name': 'Sick Leave'},
-              {'name': 'Earned Leave'},
-              {'name': 'Loss of Pay (LOP)'},
-              {'name': 'Maternity Leave'},
-              {'name': 'Paternity Leave'},
-              {'name': 'Compensatory Off (Comp Off)'},
-              {'name': 'Marriage Leave'},
-              {'name': 'Bereavement Leave'},
-              {'name': 'Emergency Leave'},
-              {'name': 'Public Holiday'},
-              {'name': 'Work From Home (WFH)'},
-            ]);
-      }
-    }
-  }
-
-  // ── 2-Stage progress indicator ──────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // FIX: 2-Stage progress indicator - correct logic
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Widget _buildStageProgress(
       String hrStatus, String mdStatus, String overallStatus) {
-    final stage1Done = hrStatus == 'approved' || overallStatus == 'approved';
-    final rejected = overallStatus == 'rejected';
-    final isFinal = overallStatus == 'approved';
     final isShowroom = _department.toUpperCase() == 'SHOWROOM';
     final approverLabel = isShowroom ? "Dinesh Action" : "HR Action";
+
+    // Stage 1: HR/Dinesh approved?
+    final stage1Approved = hrStatus == 'approved';
+    final stage1Rejected = hrStatus == 'rejected';
+
+    // Stage 2: MD approved?
+    final stage2Approved =
+        mdStatus == 'approved' && overallStatus == 'approved';
+    final stage2Rejected =
+        mdStatus == 'rejected' || overallStatus == 'rejected';
+
+    // Line between stage 1 and 2 is active only if stage 1 approved
+    final line1Active = stage1Approved && !stage1Rejected;
+    // Line between stage 2 done only if fully approved
+    final line2Active = stage2Approved;
+
+    String stage1Status;
+    if (stage1Rejected) {
+      stage1Status = 'rejected';
+    } else if (stage1Approved) {
+      stage1Status = 'approved';
+    } else {
+      stage1Status = 'pending';
+    }
+
+    String stage2Status;
+    if (stage2Rejected && stage1Approved) {
+      stage2Status = 'rejected';
+    } else if (stage2Approved) {
+      stage2Status = 'approved';
+    } else if (stage1Approved) {
+      stage2Status = 'pending';
+    } else {
+      stage2Status = 'waiting';
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -404,19 +453,15 @@ class _LeaveScreenState extends State<LeaveScreen>
                 label: "Submitted",
                 status: 'approved',
                 icon: Icons.send_rounded),
-            _line(stage1Done),
+            _line(line1Active),
             _step(
                 label: approverLabel,
-                status: rejected && hrStatus == 'rejected'
-                    ? 'rejected'
-                    : stage1Done
-                        ? 'approved'
-                        : 'pending',
+                status: stage1Status,
                 icon: isShowroom ? Icons.person : Icons.person_search),
-            _line(isFinal),
+            _line(line2Active),
             _step(
-                label: "Final",
-                status: isFinal ? 'approved' : 'waiting',
+                label: "MD Final",
+                status: stage2Status,
                 icon: Icons.assignment_turned_in),
           ],
         ),
@@ -453,7 +498,6 @@ class _LeaveScreenState extends State<LeaveScreen>
         color = Colors.grey;
         statusIcon = Icons.hourglass_top_rounded;
     }
-
     return Column(
       children: [
         Container(
@@ -485,10 +529,12 @@ class _LeaveScreenState extends State<LeaveScreen>
     );
   }
 
-  Widget _overallStatusBadge(String status) {
+  // FIX: Overall status badge now uses hrStatus + mdStatus for correct display
+  Widget _overallStatusBadge(String status, String hrStatus, String mdStatus) {
     Color color;
     IconData icon;
     String label;
+    final isShowroom = _department.toUpperCase() == 'SHOWROOM';
 
     switch (status) {
       case 'approved':
@@ -502,16 +548,23 @@ class _LeaveScreenState extends State<LeaveScreen>
         label = 'Rejected';
         break;
       case 'hr_approved':
-        color = Colors.green;
+        color = Colors.teal;
         icon = Icons.check_circle_outline;
-        label = 'HR Approved';
+        label = isShowroom ? 'Dinesh Approved' : 'HR Approved';
         break;
       case 'pending':
       default:
-        color = Colors.amber;
-        icon = Icons.hourglass_empty;
-        final isShowroom = _department.toUpperCase() == 'SHOWROOM';
-        label = isShowroom ? 'Waiting for Dinesh' : 'Waiting for HR';
+        if (hrStatus == 'approved') {
+          // HR approved, waiting for MD
+          color = Colors.blue;
+          icon = Icons.hourglass_bottom;
+          label = 'Waiting for MD';
+        } else {
+          // Waiting for HR/Dinesh
+          color = Colors.amber;
+          icon = Icons.hourglass_empty;
+          label = isShowroom ? 'Waiting for Dinesh' : 'Waiting for HR';
+        }
         break;
     }
 
@@ -534,9 +587,9 @@ class _LeaveScreenState extends State<LeaveScreen>
     );
   }
 
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // PERMISSION TAB
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Widget _buildPermissionTab() {
     return RefreshIndicator(
@@ -574,8 +627,8 @@ class _LeaveScreenState extends State<LeaveScreen>
       if (pDate != null &&
           pDate.month == now.month &&
           pDate.year == now.year &&
-          p['status'] != 'rejected') {
-        usedMinutes += (p['duration_minutes'] ?? 0);
+          (p['status'] ?? '').toString().toLowerCase() != 'rejected') {
+        usedMinutes += ((p['duration_minutes'] ?? 0) as num).toDouble();
       }
     }
     final usedHours = usedMinutes / 60;
@@ -627,7 +680,7 @@ class _LeaveScreenState extends State<LeaveScreen>
           ),
           if (progress >= 1.0) ...[
             const SizedBox(height: 8),
-            const Text("⚠️ Monthly permission limit reached!",
+            const Text("âš ï¸ Monthly permission limit reached!",
                 style: TextStyle(
                     color: Colors.red,
                     fontSize: 12,
@@ -639,13 +692,13 @@ class _LeaveScreenState extends State<LeaveScreen>
   }
 
   Widget _buildPermissionCard(dynamic perm) {
-    final status = (perm['status'] ?? 'pending').toLowerCase();
-    final hrStatus = (perm['hr_status'] ?? 'pending').toLowerCase();
-    final mdStatus = (perm['md_status'] ?? 'waiting').toLowerCase();
-    final date = DateTime.tryParse(perm['date'] ?? '') ?? DateTime.now();
+    final status = (perm['status'] ?? 'pending').toString().toLowerCase();
+    final hrStatus = (perm['hr_status'] ?? 'pending').toString().toLowerCase();
+    final mdStatus = (perm['md_status'] ?? 'pending').toString().toLowerCase();
 
-    String startTime = perm['start_time'] ?? '--:--';
-    String endTime = perm['end_time'] ?? '--:--';
+    final date = DateTime.tryParse(perm['date'] ?? '') ?? DateTime.now();
+    String startTime = perm['start_time']?.toString() ?? '--:--';
+    String endTime = perm['end_time']?.toString() ?? '--:--';
     if (startTime.length > 5) startTime = startTime.substring(0, 5);
     if (endTime.length > 5) endTime = endTime.substring(0, 5);
 
@@ -675,7 +728,7 @@ class _LeaveScreenState extends State<LeaveScreen>
                   Text(DateFormat('dd MMM yyyy').format(date),
                       style: const TextStyle(
                           fontWeight: FontWeight.bold, color: _navy)),
-                  _overallStatusBadge(status),
+                  _overallStatusBadge(status, hrStatus, mdStatus),
                 ],
               ),
               const SizedBox(height: 10),
@@ -722,9 +775,9 @@ class _LeaveScreenState extends State<LeaveScreen>
     );
   }
 
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // EMPTY STATE
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Widget _buildEmptyState(String msg, IconData icon) {
     return Center(
@@ -746,9 +799,9 @@ class _LeaveScreenState extends State<LeaveScreen>
     );
   }
 
-  // ──────────────────────────────────────────────────────────
-  // LEAVE FORM  (Apply Leave)
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // LEAVE FORM
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   void _showLeaveForm(BuildContext context) {
     String? selectedLeaveType;
@@ -791,8 +844,6 @@ class _LeaveScreenState extends State<LeaveScreen>
                           fontWeight: FontWeight.bold,
                           color: _navy)),
                 ),
-
-                // ── Role notice for HR ──
                 if (_userRole.toLowerCase() == 'hr')
                   Container(
                     margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -816,7 +867,6 @@ class _LeaveScreenState extends State<LeaveScreen>
                       ],
                     ),
                   ),
-
                 Expanded(
                   child: SingleChildScrollView(
                     controller: scrollCtrl,
@@ -825,7 +875,6 @@ class _LeaveScreenState extends State<LeaveScreen>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Leave type dropdown (from DB)
                           DropdownButtonFormField<String>(
                             initialValue: selectedLeaveType,
                             decoration: InputDecoration(
@@ -843,16 +892,20 @@ class _LeaveScreenState extends State<LeaveScreen>
                                 setModalState(() => selectedLeaveType = v),
                           ),
                           const SizedBox(height: 16),
-
-                          // Date pickers
                           Row(
                             children: [
                               Expanded(
                                   child: _datePicker(
                                       label: "Start Date",
                                       value: startDate,
-                                      onPicked: (d) =>
-                                          setModalState(() => startDate = d),
+                                      onPicked: (d) => setModalState(() {
+                                            startDate = d;
+                                            // Reset end date if before start
+                                            if (endDate != null &&
+                                                endDate!.isBefore(d)) {
+                                              endDate = null;
+                                            }
+                                          }),
                                       context: context)),
                               const SizedBox(width: 12),
                               Expanded(
@@ -865,8 +918,6 @@ class _LeaveScreenState extends State<LeaveScreen>
                                       context: context)),
                             ],
                           ),
-
-                          // Duration chip
                           if (startDate != null && endDate != null) ...[
                             const SizedBox(height: 12),
                             Container(
@@ -890,8 +941,6 @@ class _LeaveScreenState extends State<LeaveScreen>
                             ),
                           ],
                           const SizedBox(height: 16),
-
-                          // Reason
                           TextField(
                             controller: reasonController,
                             maxLines: 3,
@@ -904,13 +953,11 @@ class _LeaveScreenState extends State<LeaveScreen>
                             ),
                           ),
                           const SizedBox(height: 24),
-
-                          // Submit button
                           ElevatedButton.icon(
                             onPressed: isSubmitting
                                 ? null
                                 : () => _submitLeave(
-                                      ctx: ctx,
+                                      sheetContext: sheetContext,
                                       setModalState: setModalState,
                                       selectedLeaveType: selectedLeaveType,
                                       startDate: startDate,
@@ -956,10 +1003,10 @@ class _LeaveScreenState extends State<LeaveScreen>
     );
   }
 
-  // ── Leave submit logic ──────────────────────────────────
+  // â”€â”€ Leave submit logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<void> _submitLeave({
-    required BuildContext ctx,
+    required BuildContext sheetContext, // FIX: use sheet context to pop
     required StateSetter setModalState,
     required String? selectedLeaveType,
     required DateTime? startDate,
@@ -976,43 +1023,63 @@ class _LeaveScreenState extends State<LeaveScreen>
       return;
     }
 
-    setSubmitting(true);
+    if (endDate.isBefore(startDate)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('End date cannot be before start date')));
+      return;
+    }
 
+    setSubmitting(true);
     try {
       final totalDays = endDate.difference(startDate).inDays + 1;
       final appliedByRole = _userRole.toLowerCase();
-
-      // Notification & Approval Routing
-      final hasManager = _reportingManagerId.isNotEmpty;
       final isHR = appliedByRole == 'hr';
-      
+      final isShowroom = _department.toUpperCase() == 'SHOWROOM';
+      final hasManager = _reportingManagerId.isNotEmpty;
+
+      // â”€â”€ Routing Logic â”€â”€
+      // FIX: hr_status and md_status correctly set
       String recipientId;
       String notifTitle;
       String notifMessage;
-      int approvalLevel;
+      String hrStatusVal;
+      String mdStatusVal;
 
       if (isHR) {
-        // HR goes to MD
+        // HR â†’ directly to MD (FSQ000)
         recipientId = 'FSQ000';
-        notifTitle = '🔔 HR Leave - MD Approval Needed';
-        notifMessage = 'HR Manager applied for $selectedLeaveType. Needs your final approval.';
-        approvalLevel = 2; 
+        notifTitle = 'ðŸ”” HR Leave - MD Approval Needed';
+        notifMessage =
+            'HR Manager applied for $selectedLeaveType. Needs your final approval.';
+        hrStatusVal = 'approved'; // HR itself applied, no HR approval needed
+        mdStatusVal = 'pending'; // MD needs to approve
+      } else if (isShowroom) {
+        // Showroom â†’ Dinesh (manager)
+        recipientId = hasManager ? _reportingManagerId : 'FSQ000';
+        notifTitle = 'ðŸ“‹ New Showroom Leave Request';
+        notifMessage = '$_fullName applied for $selectedLeaveType from '
+            '${DateFormat('dd MMM').format(startDate)} to '
+            '${DateFormat('dd MMM').format(endDate)} ($totalDays days)';
+        hrStatusVal = 'pending'; // Dinesh/HR needs to approve first
+        mdStatusVal = 'pending'; // Then MD
       } else if (hasManager) {
-        // Employee with manager goes to manager
+        // Employee with manager â†’ manager first
         recipientId = _reportingManagerId;
-        notifTitle = '📋 New Team Leave Request';
+        notifTitle = 'ðŸ“‹ New Team Leave Request';
         notifMessage = '$_fullName applied for $selectedLeaveType from '
             '${DateFormat('dd MMM').format(startDate)} to '
             '${DateFormat('dd MMM').format(endDate)} ($totalDays days)';
-        approvalLevel = 1;
+        hrStatusVal = 'pending';
+        mdStatusVal = 'pending';
       } else {
-        // Employee without manager goes to HR
+        // Employee without manager â†’ HR
         recipientId = 'FSQ002';
-        notifTitle = '📋 New Leave Request';
+        notifTitle = 'ðŸ“‹ New Leave Request';
         notifMessage = '$_fullName applied for $selectedLeaveType from '
             '${DateFormat('dd MMM').format(startDate)} to '
             '${DateFormat('dd MMM').format(endDate)} ($totalDays days)';
-        approvalLevel = 2; // Direct to HR is considered level 2 in this simplified flow if MD is final
+        hrStatusVal = 'pending';
+        mdStatusVal = 'pending';
       }
 
       final res = await supabase
@@ -1024,11 +1091,10 @@ class _LeaveScreenState extends State<LeaveScreen>
             'end_date': endDate.toIso8601String().split('T')[0],
             'reason': reason,
             'status': 'pending',
-            'hr_status': isHR || !hasManager ? 'pending' : 'approved', 
-            'md_status': 'approved', 
+            'hr_status': hrStatusVal,
+            'md_status': mdStatusVal,
             'applied_by_role': appliedByRole,
             'total_days': totalDays,
-            'current_approval_level': approvalLevel,
             'level_1_approver_id': hasManager ? _reportingManagerId : 'FSQ002',
           })
           .select()
@@ -1045,26 +1111,30 @@ class _LeaveScreenState extends State<LeaveScreen>
         'is_read': false,
       });
 
-      if (mounted) {
-        Navigator.pop(context);
-        _loadLeaveRequests();
-        final approver = isHR ? 'MD' : (hasManager ? 'Reporting Manager' : 'HR');
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('✅ Leave applied! Waiting for $approver approval.'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 3),
-        ));
-      }
+      if (!mounted) return;
+      Navigator.pop(context);
+      _loadLeaveRequests();
+      final approver = isHR
+          ? 'MD'
+          : (isShowroom ? 'Dinesh' : (hasManager ? 'Reporting Manager' : 'HR'));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('âœ… Leave applied! Waiting for $approver approval.'),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 3),
+      ));
     } catch (e) {
       setSubmitting(false);
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Error submitting leave: $e'),
+            backgroundColor: Colors.red));
+      }
     }
   }
 
-  // ──────────────────────────────────────────────────────────
-  // PERMISSION FORM  (Apply Permission)
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // PERMISSION FORM
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   void _showPermissionForm(BuildContext context) {
     DateTime? permDate = DateTime.now();
@@ -1126,7 +1196,6 @@ class _LeaveScreenState extends State<LeaveScreen>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Date picker
                           _datePicker(
                             label: "Date",
                             value: permDate,
@@ -1139,16 +1208,22 @@ class _LeaveScreenState extends State<LeaveScreen>
                             fullWidth: true,
                           ),
                           const SizedBox(height: 16),
-
-                          // Time pickers
                           Row(
                             children: [
                               Expanded(
                                   child: _timePicker(
                                       label: "Start Time",
                                       value: startTime,
-                                      onPicked: (t) =>
-                                          setModalState(() => startTime = t),
+                                      onPicked: (t) => setModalState(() {
+                                            startTime = t;
+                                            // Reset end time if needed
+                                            if (endTime != null) {
+                                              final s = t.hour * 60 + t.minute;
+                                              final e = endTime!.hour * 60 +
+                                                  endTime!.minute;
+                                              if (e <= s) endTime = null;
+                                            }
+                                          }),
                                       context: context,
                                       initial:
                                           const TimeOfDay(hour: 9, minute: 0))),
@@ -1165,8 +1240,6 @@ class _LeaveScreenState extends State<LeaveScreen>
                                               hour: 10, minute: 0))),
                             ],
                           ),
-
-                          // Duration display
                           if (startTime != null && endTime != null) ...[
                             const SizedBox(height: 12),
                             Builder(builder: (_) {
@@ -1184,8 +1257,8 @@ class _LeaveScreenState extends State<LeaveScreen>
                                     borderRadius: BorderRadius.circular(10)),
                                 child: Text(
                                   isValid
-                                      ? "⏱ Duration: ${dur ~/ 60}h ${dur % 60}min"
-                                      : "⚠️ Invalid time range (max 2 hrs)",
+                                      ? "â± Duration: ${dur ~/ 60}h ${dur % 60}min"
+                                      : "âš ï¸ Invalid time range (max 2 hrs)",
                                   style: TextStyle(
                                       color: isValid ? Colors.blue : Colors.red,
                                       fontWeight: FontWeight.w600,
@@ -1195,8 +1268,6 @@ class _LeaveScreenState extends State<LeaveScreen>
                             }),
                           ],
                           const SizedBox(height: 16),
-
-                          // Reason dropdown
                           DropdownButtonFormField<String>(
                             initialValue: selectedReason,
                             decoration: InputDecoration(
@@ -1213,7 +1284,6 @@ class _LeaveScreenState extends State<LeaveScreen>
                             onChanged: (v) =>
                                 setModalState(() => selectedReason = v),
                           ),
-
                           if (selectedReason == 'Others') ...[
                             const SizedBox(height: 12),
                             TextField(
@@ -1226,8 +1296,6 @@ class _LeaveScreenState extends State<LeaveScreen>
                             ),
                           ],
                           const SizedBox(height: 12),
-
-                          // Remarks
                           TextField(
                             controller: remarksController,
                             decoration: InputDecoration(
@@ -1237,13 +1305,11 @@ class _LeaveScreenState extends State<LeaveScreen>
                             ),
                           ),
                           const SizedBox(height: 24),
-
-                          // Submit
                           ElevatedButton.icon(
                             onPressed: isSubmitting
                                 ? null
                                 : () => _submitPermission(
-                                      ctx: ctx,
+                                      sheetContext: sheetContext,
                                       setModalState: setModalState,
                                       permDate: permDate,
                                       startTime: startTime,
@@ -1291,10 +1357,10 @@ class _LeaveScreenState extends State<LeaveScreen>
     );
   }
 
-  // ── Permission submit logic ─────────────────────────────
+  // â”€â”€ Permission submit logic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<void> _submitPermission({
-    required BuildContext ctx,
+    required BuildContext sheetContext, // FIX: use sheet context
     required StateSetter setModalState,
     required DateTime? permDate,
     required TimeOfDay? startTime,
@@ -1329,57 +1395,74 @@ class _LeaveScreenState extends State<LeaveScreen>
       return;
     }
 
-    // Monthly limit check
+    // FIX: Monthly limit check in minutes (4 hours = 240 minutes)
     final now = DateTime.now();
-    final monthlyCount = _permissions.where((p) {
+    double monthlyUsedMinutes = 0;
+    for (var p in _permissions) {
       final pDate = DateTime.tryParse(p['date'] ?? '');
-      return pDate != null &&
+      if (pDate != null &&
           pDate.month == now.month &&
           pDate.year == now.year &&
-          p['status'] != 'rejected';
-    }).length;
+          (p['status'] ?? '').toString().toLowerCase() != 'rejected') {
+        monthlyUsedMinutes += ((p['duration_minutes'] ?? 0) as num).toDouble();
+      }
+    }
 
-    if (monthlyCount >= 4) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Monthly limit of 4 permissions reached')));
+    if (monthlyUsedMinutes + duration > 240) {
+      final remaining = 240 - monthlyUsedMinutes;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(
+              'Monthly limit exceeded! Only ${remaining.toInt()} minutes remaining.')));
       return;
     }
 
     setSubmitting(true);
-
     try {
       final finalReason =
           selectedReason == 'Others' ? othersText : selectedReason;
-
       final startTimeStr =
           '${startTime.hour.toString().padLeft(2, '0')}:${startTime.minute.toString().padLeft(2, '0')}:00';
       final endTimeStr =
           '${endTime.hour.toString().padLeft(2, '0')}:${endTime.minute.toString().padLeft(2, '0')}:00';
 
-      // Notification & Approval Routing
-      final hasManager = _reportingManagerId.isNotEmpty;
       final isHR = _userRole.toLowerCase() == 'hr';
+      final isShowroom = _department.toUpperCase() == 'SHOWROOM';
+      final hasManager = _reportingManagerId.isNotEmpty;
 
       String recipientId;
       String notifTitle;
       String notifMessage;
-      int approvalLevel;
+      String hrStatusVal;
+      String mdStatusVal;
 
       if (isHR) {
         recipientId = 'FSQ000';
-        notifTitle = '🔔 HR Permission - MD Approval Needed';
-        notifMessage = 'HR Manager requested permission on ${DateFormat('dd MMM').format(permDate)} for $finalReason. Needs your approval.';
-        approvalLevel = 2;
+        notifTitle = 'ðŸ”” HR Permission - MD Approval Needed';
+        notifMessage =
+            'HR Manager requested permission on ${DateFormat('dd MMM').format(permDate)} for $finalReason. Needs your approval.';
+        hrStatusVal = 'approved';
+        mdStatusVal = 'pending';
+      } else if (isShowroom) {
+        recipientId = hasManager ? _reportingManagerId : 'FSQ000';
+        notifTitle = 'ðŸ“‹ New Showroom Permission Request';
+        notifMessage =
+            '$_fullName requested permission on ${DateFormat('dd MMM').format(permDate)} for $finalReason ($duration min)';
+        hrStatusVal = 'pending';
+        mdStatusVal = 'pending';
       } else if (hasManager) {
         recipientId = _reportingManagerId;
-        notifTitle = '📋 New Team Permission Request';
-        notifMessage = '$_fullName requested permission on ${DateFormat('dd MMM').format(permDate)} for $finalReason ($duration min)';
-        approvalLevel = 1;
+        notifTitle = 'ðŸ“‹ New Team Permission Request';
+        notifMessage =
+            '$_fullName requested permission on ${DateFormat('dd MMM').format(permDate)} for $finalReason ($duration min)';
+        hrStatusVal = 'pending';
+        mdStatusVal = 'pending';
       } else {
         recipientId = 'FSQ002';
-        notifTitle = '📋 New Permission Request';
-        notifMessage = '$_fullName requested permission on ${DateFormat('dd MMM').format(permDate)} for $finalReason ($duration min)';
-        approvalLevel = 2;
+        notifTitle = 'ðŸ“‹ New Permission Request';
+        notifMessage =
+            '$_fullName requested permission on ${DateFormat('dd MMM').format(permDate)} for $finalReason ($duration min)';
+        hrStatusVal = 'pending';
+        mdStatusVal = 'pending';
       }
 
       final res = await supabase
@@ -1393,10 +1476,9 @@ class _LeaveScreenState extends State<LeaveScreen>
             'reason': finalReason,
             'remarks': remarks,
             'status': 'pending',
-            'hr_status': isHR || !hasManager ? 'pending' : 'approved',
-            'md_status': 'approved',
+            'hr_status': hrStatusVal,
+            'md_status': mdStatusVal,
             'applied_by_role': _userRole.toLowerCase(),
-            'current_approval_level': approvalLevel,
             'level_1_approver_id': hasManager ? _reportingManagerId : 'FSQ002',
           })
           .select()
@@ -1413,26 +1495,30 @@ class _LeaveScreenState extends State<LeaveScreen>
         'is_read': false,
       });
 
-      if (mounted) {
-        Navigator.pop(context);
-        _loadPermissions();
-        final approver = isHR ? 'MD' : (hasManager ? 'Reporting Manager' : 'HR');
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('✅ Permission applied! Waiting for $approver approval.'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 3),
-        ));
-      }
+      if (!mounted) return;
+      Navigator.pop(context);
+      _loadPermissions();
+      final approver = isHR
+          ? 'MD'
+          : (isShowroom ? 'Dinesh' : (hasManager ? 'Reporting Manager' : 'HR'));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('âœ… Permission applied! Waiting for $approver approval.'),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 3),
+      ));
     } catch (e) {
       setSubmitting(false);
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Error submitting permission: $e'),
+            backgroundColor: Colors.red));
+      }
     }
   }
 
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // HELPER WIDGETS
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Widget _datePicker({
     required String label,
@@ -1443,7 +1529,7 @@ class _LeaveScreenState extends State<LeaveScreen>
     DateTime? lastDate,
     bool fullWidth = false,
   }) {
-    final widget = InkWell(
+    return InkWell(
       onTap: () async {
         final picked = await showDatePicker(
           context: context,
@@ -1482,7 +1568,6 @@ class _LeaveScreenState extends State<LeaveScreen>
         ),
       ),
     );
-    return widget;
   }
 
   Widget _timePicker({
@@ -1525,26 +1610,27 @@ class _LeaveScreenState extends State<LeaveScreen>
     );
   }
 
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // DETAILS POPUPS
-  // ──────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   void _showLeaveDetails(BuildContext context, dynamic leave) {
-    final status = (leave['status'] ?? 'pending').toLowerCase();
-    final hrStatus = (leave['hr_status'] ?? 'pending').toLowerCase();
-    final mdStatus = (leave['md_status'] ?? 'waiting').toLowerCase();
+    final status = (leave['status'] ?? 'pending').toString().toLowerCase();
+    final hrStatus = (leave['hr_status'] ?? 'pending').toString().toLowerCase();
+    final mdStatus = (leave['md_status'] ?? 'pending').toString().toLowerCase();
     final hrRemarks = leave['hr_remarks'];
     final mdRemarks = leave['md_remarks'];
 
-    String overallMsg = "";
-    if (status == 'rejected') {
-      overallMsg = "Leave rejected. See remarks above.";
-    } else if (mdStatus == 'approved') {
-      overallMsg = "Your leave is fully approved!";
+    // FIX: correct status message logic
+    String overallMsg;
+    if (status == 'approved') {
+      overallMsg = "âœ… Your leave is fully approved!";
+    } else if (status == 'rejected') {
+      overallMsg = "âŒ Leave rejected. See remarks above.";
     } else if (hrStatus == 'approved' && mdStatus == 'pending') {
-      overallMsg = "HR Approved. Waiting for MD final approval.";
+      overallMsg = "HR Approved âœ“ â€” Waiting for MD final approval.";
     } else {
-      overallMsg = "Waiting for HR approval";
+      overallMsg = "â³ Waiting for HR approval";
     }
 
     _showDetailsBottomSheet(
@@ -1574,9 +1660,9 @@ class _LeaveScreenState extends State<LeaveScreen>
           Text(leave['reason'] ?? 'No reason provided',
               style: const TextStyle(fontSize: 15)),
           const Divider(height: 32),
-          _detailRow("Stage 1 — HR Approval", hrStatus, hrRemarks),
+          _detailRow("Stage 1 â€” HR Approval", hrStatus, hrRemarks),
           const SizedBox(height: 16),
-          _detailRow("Stage 2 — MD Final Approval", mdStatus, mdRemarks),
+          _detailRow("Stage 2 â€” MD Final Approval", mdStatus, mdRemarks),
           const SizedBox(height: 24),
           Container(
             padding: const EdgeInsets.all(16),
@@ -1599,21 +1685,21 @@ class _LeaveScreenState extends State<LeaveScreen>
   }
 
   void _showPermissionDetails(BuildContext context, dynamic perm) {
-    final status = (perm['status'] ?? 'pending').toLowerCase();
-    final hrStatus = (perm['hr_status'] ?? 'pending').toLowerCase();
-    final mdStatus = (perm['md_status'] ?? 'waiting').toLowerCase();
+    final status = (perm['status'] ?? 'pending').toString().toLowerCase();
+    final hrStatus = (perm['hr_status'] ?? 'pending').toString().toLowerCase();
+    final mdStatus = (perm['md_status'] ?? 'pending').toString().toLowerCase();
     final hrRemarks = perm['hr_remarks'];
     final mdRemarks = perm['md_remarks'];
 
-    String overallMsg = "";
-    if (status == 'rejected') {
-      overallMsg = "Permission rejected. See remarks above.";
-    } else if (mdStatus == 'approved') {
-      overallMsg = "Your permission is fully approved!";
+    String overallMsg;
+    if (status == 'approved') {
+      overallMsg = "âœ… Your permission is fully approved!";
+    } else if (status == 'rejected') {
+      overallMsg = "âŒ Permission rejected. See remarks above.";
     } else if (hrStatus == 'approved' && mdStatus == 'pending') {
-      overallMsg = "HR Approved. Waiting for MD final approval.";
+      overallMsg = "HR Approved âœ“ â€” Waiting for MD final approval.";
     } else {
-      overallMsg = "Waiting for HR approval";
+      overallMsg = "â³ Waiting for HR approval";
     }
 
     _showDetailsBottomSheet(
@@ -1644,15 +1730,16 @@ class _LeaveScreenState extends State<LeaveScreen>
           const SizedBox(height: 4),
           Text(perm['reason'] ?? 'No reason provided',
               style: const TextStyle(fontSize: 15)),
-          if (perm['remarks'] != null && perm['remarks'].isNotEmpty) ...[
+          if (perm['remarks'] != null &&
+              perm['remarks'].toString().isNotEmpty) ...[
             const SizedBox(height: 8),
             Text("Remarks: ${perm['remarks']}",
                 style: TextStyle(color: Colors.grey[600], fontSize: 13)),
           ],
           const Divider(height: 32),
-          _detailRow("Stage 1 — HR Approval", hrStatus, hrRemarks),
+          _detailRow("Stage 1 â€” HR Approval", hrStatus, hrRemarks),
           const SizedBox(height: 16),
-          _detailRow("Stage 2 — MD Final Approval", mdStatus, mdRemarks),
+          _detailRow("Stage 2 â€” MD Final Approval", mdStatus, mdRemarks),
           const SizedBox(height: 24),
           Container(
             padding: const EdgeInsets.all(16),
@@ -1754,7 +1841,6 @@ class _LeaveScreenState extends State<LeaveScreen>
         color = Colors.grey;
         icon = Icons.lock_outline;
     }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1767,10 +1853,11 @@ class _LeaveScreenState extends State<LeaveScreen>
               child: Icon(icon, color: color, size: 18),
             ),
             const SizedBox(width: 10),
-            Text(label,
-                style:
-                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-            const Spacer(),
+            Expanded(
+              child: Text(label,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 13)),
+            ),
             Text(status.toUpperCase(),
                 style: TextStyle(
                     color: color, fontWeight: FontWeight.w900, fontSize: 11)),

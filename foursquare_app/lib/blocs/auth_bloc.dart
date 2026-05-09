@@ -14,12 +14,13 @@ class AuthBloc extends Bloc<HRMSAuthEvent, HRMSAuthState> {
     on<HRMSAuthCheckRequested>((event, emit) async {
       try {
         final prefs = await SharedPreferences.getInstance();
-        final isLoggedIn = prefs.getBool('is_logged_in') ?? false;
-        
+        final empId = prefs.getString('employee_id') ?? '';
         final user = authService.currentUser;
-        if (isLoggedIn && user != null) {
-          final profile = await authService.fetchProfile(user.id);
-          emit(HRMSAuthAuthenticated(user: user, profile: profile));
+
+        if (empId.isNotEmpty && user != null) {
+          // ✅ profiles table இல்லை — employees மட்டும்
+          final emp = await authService.fetchProfile(user.id);
+          emit(HRMSAuthAuthenticated(user: user, profile: emp));
         } else {
           emit(HRMSAuthUnauthenticated());
         }
@@ -31,11 +32,13 @@ class AuthBloc extends Bloc<HRMSAuthEvent, HRMSAuthState> {
     on<HRMSAuthLoginRequested>((event, emit) async {
       emit(HRMSAuthLoading());
       try {
-        final response = await authService.signInWithEmailPassword(event.email, event.password);
+        final response = await authService.signInWithEmailPassword(
+          event.email,
+          event.password,
+        );
         if (response.user != null) {
           final prefs = await SharedPreferences.getInstance();
           await prefs.setBool('is_logged_in', true);
-          
           final profile = await authService.fetchProfile(response.user!.id);
           emit(HRMSAuthAuthenticated(user: response.user!, profile: profile));
         } else {
@@ -49,7 +52,7 @@ class AuthBloc extends Bloc<HRMSAuthEvent, HRMSAuthState> {
     on<HRMSAuthLogoutRequested>((event, emit) async {
       emit(HRMSAuthLoading());
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('is_logged_in', false);
+      await prefs.clear();
       await authService.signOut();
       emit(HRMSAuthUnauthenticated());
     });

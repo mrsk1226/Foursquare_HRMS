@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/auth_service.dart';
 import '../services/supabase_config.dart';
 import 'login_screen.dart';
@@ -7,7 +8,7 @@ import '../widgets/app_drawer.dart';
 
 class ProfileScreen extends StatefulWidget {
   final Function(int)? switchTab;
-  const ProfileScreen({Key? key, this.switchTab}) : super(key: key);
+  const ProfileScreen({super.key, this.switchTab});
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -27,23 +28,26 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
 
   Future<void> _fetchProfile() async {
     try {
-      final user = SupabaseConfig.client.auth.currentUser;
-      if (user == null) {
+      final prefs = await SharedPreferences.getInstance();
+      final employeeId = prefs.getString('employee_id')?.trim() ?? '';
+
+      if (employeeId.isEmpty) {
         if (mounted) setState(() => _isLoading = false);
         return;
       }
-      
-      final profileRes = await SupabaseConfig.client.from('profiles').select('employee_id').eq('id', user.id).maybeSingle();
-      if (profileRes != null && profileRes['employee_id'] != null) {
-        final empRes = await SupabaseConfig.client.from('employees').select('*').eq('employee_id', profileRes['employee_id']).maybeSingle();
-        if (mounted) {
-          setState(() {
-            _profileData = empRes ?? {};
-            _isLoading = false;
-          });
-        }
-      } else {
-        if (mounted) setState(() => _isLoading = false);
+
+      final empRes = await SupabaseConfig.client
+          .from('employees')
+          .select('*')
+          .eq('employee_id', employeeId)
+          .maybeSingle();
+
+      if (mounted) {
+        setState(() {
+          _profileData =
+              empRes != null ? Map<String, dynamic>.from(empRes) : null;
+          _isLoading = false;
+        });
       }
     } catch (e) {
       if (mounted) setState(() => _isLoading = false);
@@ -51,6 +55,8 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
   }
 
   void _handleLogout(BuildContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('employee_id');
     await AuthService().signOut();
     if (context.mounted) {
       Navigator.of(context).pushAndRemoveUntil(
@@ -65,13 +71,14 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
     if (_isLoading) return const Center(child: CircularProgressIndicator());
     if (_profileData == null) return const Center(child: Text("Profile not found"));
 
-    final name = _profileData!['full_name'] ?? 'User';
-    final photoUrl = _profileData!['photo_url'];
-    final designation = _profileData!['designation'] ?? 'N/A';
-    final department = _profileData!['department'] ?? 'N/A';
-    final empId = _profileData!['employee_id'] ?? 'N/A';
-    final status = _profileData!['status'] ?? 'N/A';
+    final name = (_profileData!['full_name'] ?? 'User').toString();
+    final photoUrl = _profileData!['photo_url']?.toString();
+    final designation = (_profileData!['designation'] ?? 'N/A').toString();
+    final department = (_profileData!['department'] ?? 'N/A').toString();
+    final empId = (_profileData!['employee_id'] ?? 'N/A').toString();
+    final status = (_profileData!['status'] ?? 'N/A').toString();
     final joinDate = _profileData!['joining_date'] ?? _profileData!['join_date'];
+    final nameInitial = name.isNotEmpty ? name[0].toUpperCase() : 'U';
     
     final formattedJoinDate = joinDate != null 
         ? DateFormat('dd MMM yyyy').format(DateTime.parse(joinDate)) 
@@ -81,7 +88,7 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
       backgroundColor: Colors.white,
       drawer: AppDrawer(
         selectedIndex: 4,
-        onItemSelected: (i) => widget.switchTab?.call(i),
+        switchTab: (i) => widget.switchTab?.call(i),
       ),
       appBar: AppBar(
         backgroundColor: const Color(0xFF0F172A),
@@ -104,9 +111,11 @@ class _ProfileScreenState extends State<ProfileScreen> with SingleTickerProvider
                     CircleAvatar(
                       radius: 40,
                       backgroundColor: Colors.blue.shade900,
-                      backgroundImage: photoUrl != null ? NetworkImage(photoUrl) : null,
-                      child: photoUrl == null 
-                        ? Text(name[0].toUpperCase(), style: const TextStyle(fontSize: 32, color: Colors.white, fontWeight: FontWeight.bold))
+                      backgroundImage: (photoUrl != null && photoUrl.isNotEmpty)
+                          ? NetworkImage(photoUrl)
+                          : null,
+                      child: (photoUrl == null || photoUrl.isEmpty)
+                        ? Text(nameInitial, style: const TextStyle(fontSize: 32, color: Colors.white, fontWeight: FontWeight.bold))
                         : null,
                     ),
                     const SizedBox(width: 20),

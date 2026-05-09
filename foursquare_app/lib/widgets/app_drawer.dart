@@ -1,131 +1,213 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import '../services/supabase_config.dart';
 import '../screens/login_screen.dart';
+import '../services/auth_service.dart';
+import '../services/supabase_config.dart';
 
-class AppDrawer extends StatelessWidget {
+class AppDrawer extends StatefulWidget {
   final int selectedIndex;
-  final Function(int) onItemSelected;
+  final Function(int)? switchTab;
 
-  const AppDrawer({
-    Key? key,
-    required this.selectedIndex,
-    required this.onItemSelected,
-  }) : super(key: key);
+  const AppDrawer({super.key, required this.selectedIndex, this.switchTab});
 
-  Future<Map<String, dynamic>> _fetchUserData() async {
-    final user = SupabaseConfig.client.auth.currentUser;
-    if (user == null) return {};
+  @override
+  State<AppDrawer> createState() => _AppDrawerState();
+}
 
-    final profile = await SupabaseConfig.client
-        .from('profiles')
-        .select('employee_id, role')
-        .eq('id', user.id)
-        .maybeSingle();
+class _AppDrawerState extends State<AppDrawer> {
+  String _name = 'Employee';
+  String _employeeId = '';
+  String _role = 'EMPLOYEE';
 
-    if (profile == null) return {};
+  @override
+  void initState() {
+    super.initState();
+    _loadUser();
+  }
 
-    final employee = await SupabaseConfig.client
-        .from('employees')
-        .select('full_name, photo_url')
-        .eq('employee_id', profile['employee_id'])
-        .maybeSingle();
+  Future<void> _loadUser() async {
+    try {
+      final profile = await SupabaseConfig.getProfile();
+      final empId = profile?['employee_id']?.toString() ?? '';
+      final role = profile?['role']?.toString() ?? 'employee';
+      String name = 'Employee';
 
-    return {
-      'name': employee?['full_name'] ?? 'User',
-      'id': profile['employee_id'] ?? '---',
-      'role': (profile['role'] ?? 'employee').toString().toUpperCase(),
-      'photo': employee?['photo_url'],
-    };
+      if (empId.isNotEmpty) {
+        final emp = await SupabaseConfig.withTimeout(
+          SupabaseConfig.client
+              .from('employees')
+              .select('full_name')
+              .eq('employee_id', empId)
+              .maybeSingle(),
+        );
+        name = emp?['full_name']?.toString() ?? 'Employee';
+      }
+      if (mounted) {
+        setState(() {
+          _employeeId = empId;
+          _name = name;
+          _role = role.toUpperCase();
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _handleLogout() async {
+    SupabaseConfig.clearSessionCache();
+    await AuthService().signOut();
+    if (mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    const navy = Color(0xFF0F172A);
-    const blue = Color(0xFF3B82F6);
-
     return Drawer(
-      backgroundColor: navy,
-      child: FutureBuilder<Map<String, dynamic>>(
-        future: _fetchUserData(),
-        builder: (context, snapshot) {
-          final data = snapshot.data ?? {};
-          return Column(
-            children: [
-              // Header
-              UserAccountsDrawerHeader(
-                decoration: const BoxDecoration(color: Color(0xFF1E293B)),
-                currentAccountPicture: CircleAvatar(
-                  backgroundColor: blue.withValues(alpha: 0.2),
-                  backgroundImage: data['photo'] != null ? NetworkImage(data['photo']) : null,
-                  child: data['photo'] == null
-                      ? Text(data['name']?.toString().substring(0, 1) ?? 'U',
-                          style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold))
-                      : null,
-                ),
-                accountName: Text(data['name'] ?? 'Loading...', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                accountEmail: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text("ID: ${data['id']}", style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 12)),
-                    const SizedBox(height: 4),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(color: blue, borderRadius: BorderRadius.circular(4)),
-                      child: Text(data['role'] ?? '...', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+      backgroundColor: const Color(0xFF1a2744),
+      child: Column(
+        children: [
+          // HEADER
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.fromLTRB(
+              20,
+              MediaQuery.of(context).padding.top + 24,
+              20,
+              20,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  radius: 36,
+                  backgroundColor: const Color(0xFF2E3F6B),
+                  child: Text(
+                    _name.isNotEmpty ? _name[0].toUpperCase() : 'U',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
                     ),
-                  ],
+                  ),
                 ),
-              ),
+                const SizedBox(height: 12),
+                Text(
+                  _name,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  'ID: $_employeeId',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF2979FF),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    _role,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
 
-              // Menu Items
-              Expanded(
-                child: ListView(
-                  padding: EdgeInsets.zero,
-                  children: [
-                    _drawerItem(0, Icons.dashboard_outlined, Icons.dashboard, "Dashboard", blue),
-                    _drawerItem(1, Icons.watch_later_outlined, Icons.watch_later, "Attendance", blue),
-                    _drawerItem(2, Icons.calendar_month_outlined, Icons.calendar_month, "Leave & Permissions", blue),
-                    _drawerItem(3, Icons.campaign_outlined, Icons.campaign, "Engage", blue),
-                    _drawerItem(4, Icons.person_outline, Icons.person, "My Profile", blue),
-                    _drawerItem(-1, Icons.receipt_long_outlined, Icons.receipt_long, "Payslip", blue, route: 'payslip'),
-                    _drawerItem(-1, Icons.contact_support_outlined, Icons.contact_support, "HR Contact", blue, route: 'contact'),
-                    const Divider(color: Colors.white10),
-                    ListTile(
-                      leading: const Icon(Icons.logout, color: Colors.redAccent),
-                      title: const Text("Sign Out", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-                      onTap: () async {
-                        await SupabaseConfig.client.auth.signOut();
-                        Navigator.of(context).pushAndRemoveUntil(
-                          MaterialPageRoute(builder: (_) => const LoginScreen()),
-                          (route) => false,
-                        );
-                      },
-                    ),
-                  ],
+          const Divider(color: Color(0xFF2E3F6B), height: 1),
+
+          // MENU ITEMS
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              children: [
+                _item(context, Icons.home_rounded, 'Dashboard', 0),
+                _item(context, Icons.access_time_rounded, 'Attendance', 1),
+                _item(
+                  context,
+                  Icons.calendar_month_rounded,
+                  'Leave & Permission',
+                  2,
                 ),
+                _item(context, Icons.campaign_rounded, 'Engage', 3),
+                _item(context, Icons.person_rounded, 'Profile', 4),
+              ],
+            ),
+          ),
+
+          const Divider(color: Color(0xFF2E3F6B), height: 1),
+
+          // LOGOUT
+          ListTile(
+            leading: const Icon(Icons.logout_rounded, color: Color(0xFFFF5252)),
+            title: const Text(
+              'Logout',
+              style: TextStyle(
+                color: Color(0xFFFF5252),
+                fontWeight: FontWeight.bold,
               ),
-            ],
-          );
-        },
+            ),
+            onTap: () {
+              Navigator.pop(context);
+              _handleLogout();
+            },
+          ),
+          const SizedBox(height: 16),
+        ],
       ),
     );
   }
 
-  Widget _drawerItem(int index, IconData icon, IconData activeIcon, String title, Color activeColor, {String? route}) {
-    final isSelected = selectedIndex == index;
-    return ListTile(
-      selected: isSelected,
-      leading: Icon(isSelected ? activeIcon : icon, color: isSelected ? activeColor : Colors.white70),
-      title: Text(title, style: TextStyle(color: isSelected ? Colors.white : Colors.white70, fontWeight: isSelected ? FontWeight.bold : FontWeight.normal)),
-      onTap: () {
-        if (index != -1) {
-          onItemSelected(index);
-        } else {
-           // Handle external routes if needed, but for now we'll just close drawer
-        }
-      },
-      selectedTileColor: activeColor.withValues(alpha: 0.1),
+  Widget _item(BuildContext context, IconData icon, String title, int index) {
+    final isSelected = widget.selectedIndex == index;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: isSelected
+            ? const Color(0xFF2979FF).withValues(alpha: 0.15)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        leading: Icon(
+          icon,
+          color: isSelected ? const Color(0xFF2979FF) : Colors.white70,
+          size: 22,
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.white70,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+            fontSize: 14,
+          ),
+        ),
+        onTap: () {
+          Navigator.pop(context);
+          if (widget.switchTab != null) {
+            widget.switchTab!(index);
+          }
+        },
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
     );
   }
 }

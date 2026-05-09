@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
-import '../blocs/auth_bloc.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../services/supabase_config.dart';
 
 class PayslipScreen extends StatefulWidget {
-  const PayslipScreen({Key? key}) : super(key: key);
+  const PayslipScreen({super.key});
 
   @override
   State<PayslipScreen> createState() => _PayslipScreenState();
@@ -37,28 +36,32 @@ class _PayslipScreenState extends State<PayslipScreen> {
   }
 
   Future<void> _fetchPayrolls() async {
-    final state = context.read<AuthBloc>().state;
-    if (state is HRMSAuthAuthenticated) {
-      final empId = state.profile?['employee_id'];
-      if (empId == null) return;
+    try {
+      // ✅ SharedPreferences மூலம் employee_id எடு — AuthBloc இல்ல
+      final prefs = await SharedPreferences.getInstance();
+      final empId = prefs.getString('employee_id') ?? '';
 
-      try {
-        final res = await _supabase
-            .from('payroll')
-            .select()
-            .eq('employee_id', empId)
-            .order('year', ascending: false)
-            .order('month', ascending: false);
-
-        if (mounted) {
-          setState(() {
-            _payrolls = res ?? [];
-            _isLoading = false;
-          });
-        }
-      } catch (e) {
+      if (empId.isEmpty) {
         if (mounted) setState(() => _isLoading = false);
+        return;
       }
+
+      final res = await _supabase
+          .from('payroll')
+          .select()
+          .eq('employee_id', empId)
+          .order('year', ascending: false)
+          .order('month', ascending: false);
+
+      if (mounted) {
+        setState(() {
+          _payrolls = res ?? [];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Payroll fetch error: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -68,7 +71,6 @@ class _PayslipScreenState extends State<PayslipScreen> {
           'Downloading Payslip for ${_months[pay['month'] - 1]} ${pay['year']}...'),
       backgroundColor: const Color(0xFF2E86AB),
     ));
-    // Real implementation would use pdf package to generate PDF and open file
     Future.delayed(const Duration(seconds: 1), () {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -82,7 +84,8 @@ class _PayslipScreenState extends State<PayslipScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Payslips', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text('My Payslips',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: const Color(0xFF0F172A),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
