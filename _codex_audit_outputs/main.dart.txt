@@ -1,0 +1,118 @@
+﻿import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'screens/splash_screen.dart';
+import 'screens/dashboard_screen.dart';
+import 'screens/attendance_screen.dart';
+import 'screens/leave_screen.dart';
+import 'screens/announcements_screen.dart';
+import 'screens/profile_screen.dart';
+import 'services/supabase_config.dart';
+import 'widgets/app_drawer.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await SupabaseConfig.initialize();
+  await SharedPreferences.getInstance();
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Foursquare HRMS',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        useMaterial3: true,
+        primaryColor: const Color(0xFF1a2744),
+        scaffoldBackgroundColor: const Color(0xFFF5F6FA),
+        textTheme: GoogleFonts.interTextTheme(Theme.of(context).textTheme),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF1a2744),
+          primary: const Color(0xFF1a2744),
+        ),
+      ),
+      home: const SplashScreen(),
+    );
+  }
+}
+
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
+
+  @override
+  State<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> {
+  int _selectedIndex = 0;
+
+  void _switchTab(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final List<Widget> pages = [
+      DashboardScreen(switchTab: _switchTab),
+      AttendanceScreen(switchTab: _switchTab),
+      LeaveScreen(switchTab: _switchTab),
+      AnnouncementsScreen(switchTab: _switchTab),
+      ProfileScreen(switchTab: _switchTab),
+    ];
+
+    return Scaffold(
+      drawer: AppDrawer(
+        selectedIndex: _selectedIndex,
+        switchTab: (index) {
+          Navigator.pop(context);
+          _switchTab(index);
+        },
+      ),
+      body: IndexedStack(index: _selectedIndex, children: pages),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedIndex,
+        onTap: _switchTab,
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: const Color(0xFF1a2744),
+        unselectedItemColor: Colors.grey,
+        showUnselectedLabels: true,
+        backgroundColor: Colors.white,
+        elevation: 8,
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home_outlined),
+            activeIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.access_time_outlined),
+            activeIcon: Icon(Icons.access_time_filled),
+            label: 'Attendance',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.calendar_month_outlined),
+            activeIcon: Icon(Icons.calendar_month),
+            label: 'Leave',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.campaign_outlined),
+            activeIcon: Icon(Icons.campaign),
+            label: 'Engage',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline),
+            activeIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+      ),
+    );
+  }
+}
+

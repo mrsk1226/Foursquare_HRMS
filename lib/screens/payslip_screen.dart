@@ -52,7 +52,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
 
         if (mounted) {
           setState(() {
-            _payrolls = res ?? [];
+            _payrolls = List<dynamic>.from(res);
             _isLoading = false;
           });
         }
@@ -113,7 +113,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
                           BoxShadow(
-                              color: Colors.grey.withOpacity(0.05),
+                              color: Colors.grey.withValues(alpha: 0.05),
                               blurRadius: 10,
                               offset: const Offset(0, 4))
                         ],
@@ -162,7 +162,7 @@ class _PayslipScreenState extends State<PayslipScreen> {
                                     const Text('Net Pay',
                                         style: TextStyle(
                                             color: Colors.grey, fontSize: 12)),
-                                    Text('₹${pay['net_salary'].toString()}',
+                                    Text('â‚¹${pay['net_salary'].toString()}',
                                         style: const TextStyle(
                                             fontWeight: FontWeight.bold,
                                             fontSize: 20,

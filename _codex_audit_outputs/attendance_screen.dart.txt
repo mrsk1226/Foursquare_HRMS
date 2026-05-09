@@ -1,0 +1,1152 @@
+﻿import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:geolocator/geolocator.dart';
+import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../services/supabase_config.dart';
+import '../services/permission_service.dart';
+import '../widgets/app_drawer.dart';
+
+class AttendanceScreen extends StatefulWidget {
+  final Function(int)? switchTab;
+  const AttendanceScreen({super.key, this.switchTab});
+  @override
+  State<AttendanceScreen> createState() => _AttendanceScreenState();
+}
+
+class _AttendanceScreenState extends State<AttendanceScreen> {
+  bool _isLoading = true;
+  String _employeeId = '';
+  String _workLocation = 'Main Office';
+  String? _selectedOffice;
+  bool _isPunchedIn = false;
+  bool _isPunchedOut = false;
+  DateTime? _punchInTime;
+  DateTime? _punchOutTime;
+  Map<String, dynamic>? _todayLog;
+  Timer? _timer;
+  Duration _elapsed = Duration.zero;
+  final Map<DateTime, Map<String, dynamic>> _attendanceMap = {};
+  List<dynamic> _monthlyLogs = [];
+  List<dynamic> _leaves = [];
+  int _presentCount = 0;
+  int _absentCount = 0;
+  double _totalHoursCount = 0;
+
+  final Map<String, Map<String, double>> _offices = {
+    'Main Office': {'lat': 11.3292918, 'lng': 77.7007555, 'radius': 200.0},
+    'Showroom': {'lat': 11.3319983, 'lng': 77.7012905, 'radius': 200.0},
+  };
+
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // WEEKEND RULE â€” per employee work location
+  //   Main Office : Saturday + Sunday = off
+  //   Showroom    : Sunday only = off  (Sat is working day)
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  bool _isWeekendForEmployee(DateTime date) {
+    final isShowroom = _workLocation.toUpperCase() == 'SHOWROOM';
+    if (isShowroom) {
+      return date.weekday == DateTime.sunday;
+    }
+    return date.weekday == DateTime.saturday || date.weekday == DateTime.sunday;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeScreen();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // INIT
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  Future<void> _initializeScreen() async {
+    if (mounted) setState(() => _isLoading = true);
+    await _loadEmployeeProfile();
+    if (_employeeId.isNotEmpty) {
+      await _restorePunchState();
+      await _syncWithSupabase();
+      await _loadMonthAttendance();
+      _calculateStats();
+    }
+    if (mounted) setState(() => _isLoading = false);
+    if (_isPunchedIn && !_isPunchedOut && _punchInTime != null) {
+      _elapsed = DateTime.now().difference(_punchInTime!);
+      _startTimer();
+    }
+  }
+
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // EMPLOYEE PROFILE â€” âœ… FIXED: profiles table à®¨à¯€à®•à¯à®•à®¿à®©à¯‹à®®à¯
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  Future<void> _loadEmployeeProfile() async {
+    try {
+      // âœ… SharedPreferences à®®à®Ÿà¯à®Ÿà¯à®®à¯ â€” profiles table à®‡à®²à¯à®²à¯ˆ
+      final prefs = await SharedPreferences.getInstance();
+      _employeeId = prefs.getString('employee_id') ?? '';
+
+      if (_employeeId.isEmpty) return;
+
+      final emp = await SupabaseConfig.client
+          .from('employees')
+          .select('work_location, department')
+          .eq('employee_id', _employeeId)
+          .maybeSingle();
+
+      if (emp != null) {
+        _workLocation = emp['work_location']?.toString() ?? 'Main Office';
+        if (_offices.containsKey(_workLocation)) {
+          if (mounted) setState(() => _selectedOffice = _workLocation);
+        }
+      }
+    } catch (e) {
+      debugPrint('Profile load error: $e');
+      final prefs = await SharedPreferences.getInstance();
+      _employeeId = prefs.getString('employee_id') ?? '';
+    }
+  }
+
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // PUNCH STATE â€” SharedPreferences
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  Future<void> _savePunchState() async {
+    if (_employeeId.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      await prefs.setString('fsq_punch_date_$_employeeId', today);
+      await prefs.setBool('fsq_punched_in_$_employeeId', _isPunchedIn);
+      await prefs.setBool('fsq_punched_out_$_employeeId', _isPunchedOut);
+      if (_punchInTime != null) {
+        await prefs.setString(
+            'fsq_check_in_$_employeeId', _punchInTime!.toIso8601String());
+      }
+      if (_punchOutTime != null) {
+        await prefs.setString(
+            'fsq_check_out_$_employeeId', _punchOutTime!.toIso8601String());
+      }
+      if (_selectedOffice != null) {
+        await prefs.setString('fsq_office_$_employeeId', _selectedOffice!);
+      }
+    } catch (e) {
+      debugPrint('Save punch state error: $e');
+    }
+  }
+
+  Future<void> _restorePunchState() async {
+    if (_employeeId.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      final savedDate = prefs.getString('fsq_punch_date_$_employeeId') ?? '';
+      if (savedDate != today) {
+        await _clearPunchState();
+        return;
+      }
+      final punchedIn = prefs.getBool('fsq_punched_in_$_employeeId') ?? false;
+      final punchedOut = prefs.getBool('fsq_punched_out_$_employeeId') ?? false;
+      final checkInStr = prefs.getString('fsq_check_in_$_employeeId');
+      final checkOutStr = prefs.getString('fsq_check_out_$_employeeId');
+      final savedOffice = prefs.getString('fsq_office_$_employeeId');
+      if (punchedIn && checkInStr != null) {
+        final checkIn = DateTime.parse(checkInStr).toLocal();
+        if (mounted) {
+          setState(() {
+            _isPunchedIn = punchedIn;
+            _isPunchedOut = punchedOut;
+            _punchInTime = checkIn;
+            if (checkOutStr != null) {
+              _punchOutTime = DateTime.parse(checkOutStr).toLocal();
+            }
+            if (savedOffice != null) _selectedOffice = savedOffice;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Restore punch state error: $e');
+    }
+  }
+
+  Future<void> _clearPunchState() async {
+    if (_employeeId.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      for (final k in [
+        'fsq_punch_date_$_employeeId',
+        'fsq_punched_in_$_employeeId',
+        'fsq_punched_out_$_employeeId',
+        'fsq_check_in_$_employeeId',
+        'fsq_check_out_$_employeeId',
+        'fsq_office_$_employeeId',
+      ]) {
+        await prefs.remove(k);
+      }
+    } catch (e) {
+      debugPrint('Clear punch state error: $e');
+    }
+  }
+
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // SUPABASE SYNC
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  Future<void> _syncWithSupabase() async {
+    if (_employeeId.isEmpty) return;
+    try {
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      final response = await SupabaseConfig.client
+          .from('attendance_logs')
+          .select(
+              'id, employee_id, check_in, check_out, date, status, lat, lng')
+          .eq('employee_id', _employeeId)
+          .eq('date', today)
+          .maybeSingle();
+      if (response != null) {
+        final checkIn = response['check_in'];
+        final checkOut = response['check_out'];
+        if (checkIn != null) {
+          final cin = DateTime.parse(checkIn.toString()).toLocal();
+          if (mounted) {
+            setState(() {
+              _isPunchedIn = true;
+              _punchInTime = cin;
+              _todayLog = response;
+              if (checkOut != null) {
+                _isPunchedOut = true;
+                _punchOutTime = DateTime.parse(checkOut.toString()).toLocal();
+              } else {
+                _isPunchedOut = false;
+              }
+            });
+          }
+          await _savePunchState();
+        }
+      }
+    } catch (e) {
+      debugPrint('Supabase sync error: $e');
+    }
+  }
+
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // TIMER
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  void _startTimer() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_punchInTime != null && mounted && !_isPunchedOut) {
+        setState(() => _elapsed = DateTime.now().difference(_punchInTime!));
+      }
+    });
+  }
+
+  void _stopTimer() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  String get _timerDisplay {
+    final h = _elapsed.inHours.toString().padLeft(2, '0');
+    final m = (_elapsed.inMinutes % 60).toString().padLeft(2, '0');
+    final s = (_elapsed.inSeconds % 60).toString().padLeft(2, '0');
+    return '$h:$m:$s';
+  }
+
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // MONTH ATTENDANCE
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  Future<void> _loadMonthAttendance() async {
+    if (_employeeId.isEmpty) return;
+    try {
+      final now = DateTime.now();
+      final first =
+          DateTime(now.year, now.month, 1).toIso8601String().split('T')[0];
+      final last =
+          DateTime(now.year, now.month + 1, 0).toIso8601String().split('T')[0];
+      final results = await Future.wait([
+        SupabaseConfig.client
+            .from('attendance_logs')
+            .select('id, employee_id, check_in, check_out, date, status')
+            .eq('employee_id', _employeeId)
+            .gte('date', first)
+            .lte('date', last),
+        SupabaseConfig.client
+            .from('leave_requests')
+            .select(
+                'id, employee_id, leave_type, start_date, end_date, reason, status')
+            .eq('employee_id', _employeeId)
+            .inFilter('status', ['approved', 'pending'])
+            .gte('start_date', first)
+            .lte('end_date', last),
+      ]);
+      _monthlyLogs = results[0] as List;
+      _leaves = results[1] as List;
+      _attendanceMap.clear();
+      for (final log in _monthlyLogs) {
+        final date = DateTime.parse(log['date'].toString());
+        _attendanceMap[DateTime(date.year, date.month, date.day)] = {
+          ...Map<String, dynamic>.from(log),
+          'status': 'present',
+        };
+      }
+      // Leave entries â€” Sunday leaves (HR approved) are also stored
+      for (final leave in _leaves) {
+        final s = DateTime.parse(leave['start_date'].toString());
+        final e = DateTime.parse(leave['end_date'].toString());
+        for (int i = 0; i <= e.difference(s).inDays; i++) {
+          final date = s.add(Duration(days: i));
+          final key = DateTime(date.year, date.month, date.day);
+          if (!_attendanceMap.containsKey(key)) {
+            _attendanceMap[key] = {
+              ...Map<String, dynamic>.from(leave),
+              'status': 'leave',
+            };
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Month attendance error: $e');
+    }
+  }
+
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // STATS â€” respects per-employee weekend rule
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  void _calculateStats() {
+    final now = DateTime.now();
+    _presentCount = _monthlyLogs.length;
+    int pastWorkingDays = 0;
+    for (int i = 1; i < now.day; i++) {
+      final d = DateTime(now.year, now.month, i);
+      if (!_isWeekendForEmployee(d)) pastWorkingDays++;
+    }
+    // Leave days â€” Sunday leaves count too (HR approved, not absent)
+    final leaveDays =
+        _attendanceMap.values.where((v) => v['status'] == 'leave').length;
+    _absentCount = (pastWorkingDays - _presentCount - leaveDays).clamp(0, 31);
+    double total = 0;
+    for (final log in _monthlyLogs) {
+      if (log['check_in'] != null && log['check_out'] != null) {
+        final cin = DateTime.parse(log['check_in'].toString()).toLocal();
+        final cout = DateTime.parse(log['check_out'].toString()).toLocal();
+        total += cout.difference(cin).inMinutes / 60.0;
+      }
+    }
+    _totalHoursCount = total;
+  }
+
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // PUNCH HANDLER
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  Future<void> _handlePunch() async {
+    if (!_isPunchedIn && _selectedOffice == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Please select your office first'),
+        backgroundColor: Colors.orange,
+      ));
+      return;
+    }
+    if (_isPunchedIn && !_isPunchedOut && _todayLog == null) {
+      await _syncWithSupabase();
+      if (_todayLog == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content:
+                Text("Could not find today's punch record. Please contact HR."),
+            backgroundColor: Colors.red,
+          ));
+        }
+        return;
+      }
+    }
+    try {
+      final bool hasPermission =
+          await PermissionService.checkAndRequestLocation();
+      if (!hasPermission) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Location permission is required to punch'),
+            backgroundColor: Colors.orange,
+          ));
+        }
+        return;
+      }
+      final position = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high);
+      if (!_isPunchedIn) {
+        final office = _offices[_selectedOffice!]!;
+        final distance = Geolocator.distanceBetween(
+          position.latitude,
+          position.longitude,
+          office['lat']!,
+          office['lng']!,
+        );
+        if (distance > office['radius']!) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(
+                  'You are ${distance.toInt()}m away. Must be within ${office['radius']!.toInt()}m of $_selectedOffice'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 4),
+            ));
+          }
+          return;
+        }
+      }
+      final now = DateTime.now();
+      final nowUtc = now.toUtc().toIso8601String();
+      final todayStr = DateFormat('yyyy-MM-dd').format(now);
+      if (!_isPunchedIn) {
+        // â”€â”€ PUNCH IN â”€â”€
+        final res = await SupabaseConfig.client
+            .from('attendance_logs')
+            .insert({
+              'employee_id': _employeeId,
+              'check_in': nowUtc,
+              'lat': position.latitude,
+              'lng': position.longitude,
+              'date': todayStr,
+              'status': 'present',
+              'office': _selectedOffice,
+            })
+            .select()
+            .single();
+        if (mounted) {
+          setState(() {
+            _isPunchedIn = true;
+            _isPunchedOut = false;
+            _punchInTime = now;
+            _todayLog = res;
+          });
+        }
+        await _savePunchState();
+        _startTimer();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content:
+                Text('âœ… Punched in at ${DateFormat('hh:mm a').format(now)}'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 3),
+          ));
+        }
+      } else if (_isPunchedIn && !_isPunchedOut) {
+        // â”€â”€ PUNCH OUT â”€â”€
+        await SupabaseConfig.client.from('attendance_logs').update({
+          'check_out': nowUtc,
+          'checkout_lat': position.latitude,
+          'checkout_lng': position.longitude,
+        }).eq('id', _todayLog!['id']);
+        if (mounted) {
+          setState(() {
+            _isPunchedOut = true;
+            _punchOutTime = now;
+          });
+        }
+        await _savePunchState();
+        _stopTimer();
+        final workedMinutes = now.difference(_punchInTime!).inMinutes;
+        final workedHrs = workedMinutes ~/ 60;
+        final workedMins = workedMinutes % 60;
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'âœ… Punched out at ${DateFormat('hh:mm a').format(now)}  â€¢  ${workedHrs}h ${workedMins}m worked'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 4),
+          ));
+        }
+      }
+      await _loadMonthAttendance();
+      if (mounted) setState(_calculateStats);
+    } catch (e) {
+      final errMsg = e.toString().length > 80
+          ? e.toString().substring(0, 80)
+          : e.toString();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Error: $errMsg'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 4),
+        ));
+      }
+    }
+  }
+
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  // BUILD
+  // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        body:
+            Center(child: CircularProgressIndicator(color: Color(0xFF3B82F6))),
+      );
+    }
+    if (_employeeId.isEmpty) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Attendance',
+              style:
+                  TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          backgroundColor: const Color(0xFF0F172A),
+          iconTheme: const IconThemeData(color: Colors.white),
+        ),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.person_off_outlined,
+                  size: 64, color: Colors.grey),
+              const SizedBox(height: 16),
+              const Text('Could not load profile',
+                  style: TextStyle(fontSize: 16, color: Colors.grey)),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                  onPressed: _initializeScreen, child: const Text('Retry')),
+            ],
+          ),
+        ),
+      );
+    }
+    final isShowroom = _workLocation.toUpperCase() == 'SHOWROOM';
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F6FA),
+      drawer: AppDrawer(
+        selectedIndex: 1,
+        switchTab: (i) => widget.switchTab?.call(i),
+      ),
+      appBar: AppBar(
+        title: const Text('Attendance',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFF0F172A),
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            onPressed: _initializeScreen,
+            tooltip: 'Refresh',
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // â”€â”€ Showroom schedule notice â”€â”€
+            if (isShowroom)
+              Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.storefront,
+                        color: Colors.orange.shade700, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Showroom Schedule: Monâ€“Sat working  â€¢  Sunday off',
+                        style: TextStyle(
+                            color: Colors.orange.shade800,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            // â”€â”€ Office Select â”€â”€
+            if (!_isPunchedIn) ...[
+              const Text('Select Office Location',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+              const SizedBox(height: 12),
+              Row(children: [
+                _officeBtn('Main Office'),
+                const SizedBox(width: 12),
+                _officeBtn('Showroom'),
+              ]),
+              const SizedBox(height: 24),
+            ],
+            // â”€â”€ Punch Card â”€â”€
+            if (!(_isPunchedIn && _isPunchedOut))
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 10)
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      _isPunchedIn ? 'Working Today' : 'Not Punched In',
+                      style: const TextStyle(fontSize: 14, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _isPunchedIn ? _timerDisplay : '--:--:--',
+                      style: TextStyle(
+                        fontSize: 48,
+                        fontWeight: FontWeight.bold,
+                        color: _isPunchedIn
+                            ? const Color(0xFFD32F2F)
+                            : const Color(0xFF1B2E4B),
+                      ),
+                    ),
+                    if (_isPunchedIn && _punchInTime != null)
+                      Text(
+                        'Punched at: ${DateFormat('hh:mm a').format(_punchInTime!)}',
+                        style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.blue.shade700,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    if (_isPunchedIn && _selectedOffice != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.location_on,
+                                size: 13, color: Colors.grey),
+                            const SizedBox(width: 4),
+                            Text(_selectedOffice!,
+                                style: const TextStyle(
+                                    fontSize: 12, color: Colors.grey)),
+                          ],
+                        ),
+                      ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: ElevatedButton.icon(
+                        onPressed: _handlePunch,
+                        icon: Icon(_isPunchedIn ? Icons.logout : Icons.login,
+                            color: Colors.white),
+                        label: Text(
+                          _isPunchedIn ? 'Punch Out' : 'Punch In',
+                          style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _isPunchedIn
+                              ? const Color(0xFFD32F2F)
+                              : const Color(0xFF2E7D32),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            // â”€â”€ Completed Card â”€â”€
+            if (_isPunchedIn && _isPunchedOut)
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.green.shade200),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.check_circle,
+                        color: Colors.green, size: 40),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Attendance Completed',
+                              style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                  color: Colors.green)),
+                          if (_punchInTime != null && _punchOutTime != null)
+                            Text(
+                              'In: ${DateFormat('hh:mm a').format(_punchInTime!)}  '
+                              'Out: ${DateFormat('hh:mm a').format(_punchOutTime!)}',
+                              style: TextStyle(
+                                  color: Colors.green.shade700, fontSize: 13),
+                            ),
+                          if (_punchInTime != null && _punchOutTime != null)
+                            Text(
+                              'Total: ${_punchOutTime!.difference(_punchInTime!).inHours}h '
+                              '${_punchOutTime!.difference(_punchInTime!).inMinutes % 60}m',
+                              style: TextStyle(
+                                  color: Colors.green.shade600,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 32),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _statCol('Present Days', '$_presentCount'),
+                _statCol('Absent Days', '$_absentCount'),
+                _statCol(
+                    'Total Hours', '${_totalHoursCount.toStringAsFixed(1)}h'),
+              ],
+            ),
+            const SizedBox(height: 24),
+            const Text('Monthly Calendar',
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF333333))),
+            const SizedBox(height: 12),
+            _buildCalendar(),
+            const SizedBox(height: 24),
+            const Text('Recent History',
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF333333))),
+            const SizedBox(height: 12),
+            _buildHistory(),
+            const SizedBox(height: 40),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // WIDGETS
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  Widget _officeBtn(String name) {
+    final sel = _selectedOffice == name;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => setState(() => _selectedOffice = name),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: sel ? const Color(0xFF1B2E4B) : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+                color: sel ? const Color(0xFF1B2E4B) : Colors.grey.shade300),
+          ),
+          child: Column(
+            children: [
+              Icon(Icons.location_on,
+                  color: sel ? Colors.white : Colors.grey, size: 20),
+              const SizedBox(height: 4),
+              Text(name,
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: sel ? Colors.white : Colors.grey.shade700)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _statCol(String label, String value) {
+    return Column(
+      children: [
+        Text(value,
+            style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF1B2E4B))),
+        const SizedBox(height: 4),
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+      ],
+    );
+  }
+
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // CALENDAR â€” per-employee weekend shading
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  Widget _buildCalendar() {
+    final now = DateTime.now();
+    final firstDay = DateTime(now.year, now.month, 1);
+    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+    final startOffset = firstDay.weekday % 7;
+    const dayHeaders = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: dayHeaders
+                .map((d) => Expanded(
+                      child: Center(
+                        child: Text(d,
+                            style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey.shade500)),
+                      ),
+                    ))
+                .toList(),
+          ),
+          const SizedBox(height: 8),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 7, childAspectRatio: 1),
+            itemCount: daysInMonth + startOffset,
+            itemBuilder: (context, index) {
+              if (index < startOffset) return const SizedBox();
+              final day = index - startOffset + 1;
+              final date = DateTime(now.year, now.month, day);
+              final key = DateTime(date.year, date.month, date.day);
+              final record = _attendanceMap[key];
+              final isToday = day == now.day;
+              final isFuture =
+                  date.isAfter(DateTime(now.year, now.month, now.day));
+              final isWeekend = _isWeekendForEmployee(date);
+              Color dot = Colors.transparent;
+              if (record != null) {
+                switch (record['status']) {
+                  case 'present':
+                    dot = const Color(0xFF2E7D32);
+                    break;
+                  case 'leave':
+                    dot = const Color(0xFFE65100);
+                    break;
+                  case 'holiday':
+                    dot = const Color(0xFF1565C0);
+                    break;
+                }
+              } else if (!isFuture && !isToday && !isWeekend) {
+                dot = const Color(0xFFD32F2F);
+              }
+              return GestureDetector(
+                onTap: () => _showDateSheet(date, record),
+                child: Container(
+                  margin: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: isToday
+                        ? Border.all(color: Colors.blue.shade700, width: 2)
+                        : null,
+                    color: isWeekend ? Colors.grey.shade50 : null,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text('$day',
+                          style: TextStyle(
+                              fontWeight:
+                                  isToday ? FontWeight.bold : FontWeight.w500,
+                              fontSize: 12,
+                              color: isToday
+                                  ? Colors.blue.shade700
+                                  : isWeekend
+                                      ? Colors.grey
+                                      : Colors.black87)),
+                      if (dot != Colors.transparent) ...[
+                        const SizedBox(height: 2),
+                        Container(
+                            width: 5,
+                            height: 5,
+                            decoration: BoxDecoration(
+                                color: dot, shape: BoxShape.circle)),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _legendDot(const Color(0xFF2E7D32), 'Present'),
+              const SizedBox(width: 12),
+              _legendDot(const Color(0xFFD32F2F), 'Absent'),
+              const SizedBox(width: 12),
+              _legendDot(const Color(0xFFE65100), 'Leave'),
+              const SizedBox(width: 12),
+              _legendDot(Colors.grey.shade400, 'Weekend'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _legendDot(Color color, String label) {
+    return Row(
+      children: [
+        Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 4),
+        Text(label, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+      ],
+    );
+  }
+
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // DATE SHEET
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  void _showDateSheet(DateTime date, Map<String, dynamic>? record) {
+    final today =
+        DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    if (date.isAfter(today)) return;
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (_) {
+        Widget body;
+        final isWeekend = _isWeekendForEmployee(date);
+        final isSunday = date.weekday == DateTime.sunday;
+        final isSaturday = date.weekday == DateTime.saturday;
+        if (record == null) {
+          if (isWeekend) {
+            body = Column(children: [
+              const Icon(Icons.weekend_outlined, color: Colors.grey, size: 48),
+              const SizedBox(height: 12),
+              Text(isSunday ? 'Sunday' : 'Saturday',
+                  style: const TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text(
+                isSunday
+                    ? 'Sunday â€” No attendance required.'
+                    : 'Saturday â€” Weekend for Main Office staff.',
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ]);
+          } else {
+            body = const Column(children: [
+              Icon(Icons.cancel_outlined, color: Colors.red, size: 48),
+              SizedBox(height: 12),
+              Text('Absent',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              SizedBox(height: 8),
+              Text('No attendance record for this day.'),
+            ]);
+          }
+        } else if (record['status'] == 'present') {
+          final cin = DateTime.parse(record['check_in'].toString()).toLocal();
+          final cout = record['check_out'] != null
+              ? DateTime.parse(record['check_out'].toString()).toLocal()
+              : null;
+          body = Column(children: [
+            const Icon(Icons.check_circle, color: Color(0xFF2E7D32), size: 48),
+            const SizedBox(height: 12),
+            const Text('Present',
+                style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2E7D32))),
+            const SizedBox(height: 16),
+            _row('Check In', DateFormat('hh:mm a').format(cin)),
+            _row('Check Out',
+                cout != null ? DateFormat('hh:mm a').format(cout) : '--'),
+            if (cout != null)
+              _row('Duration',
+                  '${cout.difference(cin).inHours}h ${cout.difference(cin).inMinutes % 60}m'),
+          ]);
+        } else if (record['status'] == 'leave') {
+          final leaveColor = isSunday ? Colors.purple : const Color(0xFFE65100);
+          body = Column(children: [
+            Icon(Icons.event_note, color: leaveColor, size: 48),
+            const SizedBox(height: 12),
+            Text(
+              isSunday ? 'Sunday Leave' : 'On Leave',
+              style: TextStyle(
+                  fontSize: 20, fontWeight: FontWeight.bold, color: leaveColor),
+            ),
+            if (isSunday) ...[
+              const SizedBox(height: 4),
+              const Text('HR Approved',
+                  style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey,
+                      fontStyle: FontStyle.italic)),
+            ],
+            const SizedBox(height: 16),
+            _row('Type', record['leave_type']?.toString() ?? 'Leave'),
+            _row('Reason', record['reason']?.toString() ?? '--'),
+          ]);
+        } else {
+          body = const Column(children: [
+            Icon(Icons.celebration, color: Color(0xFF1565C0), size: 48),
+            SizedBox(height: 12),
+            Text('Holiday',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          ]);
+        }
+        return Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(DateFormat('dd MMMM yyyy').format(date),
+                style: const TextStyle(color: Colors.grey, fontSize: 13)),
+            const SizedBox(height: 16),
+            body,
+            const SizedBox(height: 24),
+          ]),
+        );
+      },
+    );
+  }
+
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // HISTORY â€” per-employee weekend filter
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  Widget _buildHistory() {
+    final now = DateTime.now();
+    final pastDays = List.generate(
+        now.day, (i) => DateTime(now.year, now.month, now.day - i));
+    final filteredDays = pastDays.where((date) {
+      final record = _attendanceMap[date];
+      if (record == null && _isWeekendForEmployee(date)) return false;
+      return true;
+    }).toList();
+    if (filteredDays.isEmpty) {
+      return const Center(
+        child: Text('No history yet',
+            style: TextStyle(color: Colors.grey, fontSize: 14)),
+      );
+    }
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: filteredDays.length,
+      itemBuilder: (_, index) {
+        final date = filteredDays[index];
+        final record = _attendanceMap[date];
+        final isSunday = date.weekday == DateTime.sunday;
+        String title = 'Absent';
+        String subtitle = 'No record';
+        Color chipColor = const Color(0xFFD32F2F);
+        String chipLabel = 'Absent';
+        if (record != null) {
+          if (record['status'] == 'present') {
+            final cin = DateTime.parse(record['check_in'].toString()).toLocal();
+            final cout = record['check_out'] != null
+                ? DateTime.parse(record['check_out'].toString()).toLocal()
+                : null;
+            title = 'IN: ${DateFormat('hh:mm a').format(cin)}';
+            if (cout != null) {
+              title += '  OUT: ${DateFormat('hh:mm a').format(cout)}';
+              final diff = cout.difference(cin);
+              subtitle = '${diff.inHours}h ${diff.inMinutes % 60}m duration';
+            } else {
+              subtitle = 'Still working / not punched out';
+            }
+            chipColor = const Color(0xFF2E7D32);
+            chipLabel = 'Present';
+          } else if (record['status'] == 'leave') {
+            title = isSunday ? 'Sunday Leave (HR Approved)' : 'On Leave';
+            subtitle = record['leave_type']?.toString() ?? 'Leave';
+            chipColor = isSunday ? Colors.purple : const Color(0xFFE65100);
+            chipLabel = 'Leave';
+          } else if (record['status'] == 'holiday') {
+            title = 'Holiday';
+            subtitle = record['holiday_name']?.toString() ?? 'Public Holiday';
+            chipColor = const Color(0xFF1565C0);
+            chipLabel = 'Holiday';
+          }
+        }
+        return Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: [
+              BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03), blurRadius: 6)
+            ],
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 44,
+                child: Column(children: [
+                  Text(DateFormat('dd').format(date),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 18)),
+                  Text(DateFormat('MMM').format(date).toUpperCase(),
+                      style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                ]),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 13)),
+                    Text(subtitle,
+                        style: TextStyle(
+                            color: Colors.grey.shade600, fontSize: 11)),
+                  ],
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                    color: chipColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(8)),
+                child: Text(chipLabel,
+                    style: TextStyle(
+                        color: chipColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 11)),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _row(String l, String v) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(l, style: const TextStyle(color: Colors.grey)),
+            Text(v, style: const TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+      );
+}
+

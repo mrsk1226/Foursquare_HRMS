@@ -11,7 +11,7 @@ class EmployeesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const _ModulePlaceholderScreen(
-      selectedIndex: 1,
+      selectedIndex: 10,
       title: 'Employees',
       subtitle: 'Employee directory, profiles, and onboarding workflows will be available here.',
       icon: Icons.groups_rounded,
@@ -30,7 +30,7 @@ class PayrollScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const _ModulePlaceholderScreen(
-      selectedIndex: 4,
+      selectedIndex: 11,
       title: 'Payroll',
       subtitle: 'Payroll operations, salary summaries, and payslip actions will appear here.',
       icon: Icons.account_balance_wallet_rounded,
@@ -49,7 +49,7 @@ class ExpensesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const _ModulePlaceholderScreen(
-      selectedIndex: 6,
+      selectedIndex: 12,
       title: 'Expenses',
       subtitle: 'Claims, receipts, and reimbursement progress will be managed here.',
       icon: Icons.receipt_long_rounded,
@@ -68,7 +68,7 @@ class PerformanceScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const _ModulePlaceholderScreen(
-      selectedIndex: 7,
+      selectedIndex: 13,
       title: 'Performance',
       subtitle: 'Performance reviews, goals, and feedback insights will be surfaced here.',
       icon: Icons.trending_up_rounded,
@@ -150,7 +150,7 @@ class _ModulePlaceholderScreen extends StatelessWidget {
                   height: 52,
                   width: 52,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.14),
+                    color: Colors.white.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(18),
                   ),
                   child: Icon(icon, color: Colors.white, size: 28),
@@ -168,7 +168,7 @@ class _ModulePlaceholderScreen extends StatelessWidget {
                 Text(
                   subtitle,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.82),
+                    color: Colors.white.withValues(alpha: 0.82),
                     fontSize: 13,
                     height: 1.45,
                   ),

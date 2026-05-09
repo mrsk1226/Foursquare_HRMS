@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import '../blocs/auth_bloc.dart';
 import '../services/supabase_config.dart';
@@ -289,10 +288,12 @@ class _LeaveScreenState extends State<LeaveScreen> {
                     itemBuilder: (context, index) {
                       final leave = _leaveHistory[index];
                       Color statusColor = Colors.orange;
-                      if (leave['status'] == 'approved')
+                      if (leave['status'] == 'approved') {
                         statusColor = Colors.green;
-                      if (leave['status'] == 'rejected')
+                      }
+                      if (leave['status'] == 'rejected') {
                         statusColor = Colors.red;
+                      }
 
                       return Card(
                         color: Colors.white,

@@ -239,12 +239,12 @@ class _LoginScreenState extends State<LoginScreen>
                                             ),
                                             decoration: BoxDecoration(
                                               color:
-                                                  Colors.white.withOpacity(0.90),
+                                                  Colors.white.withValues(alpha: 0.90),
                                               borderRadius:
                                                   BorderRadius.circular(30),
                                               border: Border.all(
                                                 color: Colors.white
-                                                    .withOpacity(0.92),
+                                                    .withValues(alpha: 0.92),
                                                 width: 1.1,
                                               ),
                                               boxShadow: const [

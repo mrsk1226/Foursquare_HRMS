@@ -75,8 +75,9 @@ class _ProfileScreenState extends State<ProfileScreen>
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
-    if (_profileData == null)
+    if (_profileData == null) {
       return const Center(child: Text("Profile not found"));
+    }
 
     final name = _profileData!['full_name'] ?? 'User';
     final photoUrl = _profileData!['photo_url'];
@@ -93,7 +94,10 @@ class _ProfileScreenState extends State<ProfileScreen>
 
     return Scaffold(
       backgroundColor: Colors.white,
-      drawer: const AppDrawer(selectedIndex: -1),
+      drawer: AppDrawer(
+        selectedIndex: 4,
+        onItemSelected: widget.switchTab,
+      ),
       drawerEnableOpenDragGesture: true,
       drawerEdgeDragWidth: 28,
       appBar: AppBar(
@@ -252,7 +256,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   child: Container(
                     padding: const EdgeInsets.all(5),
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.35),
+                      color: Colors.black.withValues(alpha: 0.35),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -453,7 +457,7 @@ class _ProfileImageViewerState extends State<_ProfileImageViewer> {
     final opacity = (1 - (_dragOffset / 260).clamp(0.0, 0.75)).toDouble();
 
     return Scaffold(
-      backgroundColor: Colors.black.withOpacity(opacity),
+      backgroundColor: Colors.black.withValues(alpha: opacity),
       body: SafeArea(
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
@@ -482,7 +486,8 @@ class _ProfileImageViewerState extends State<_ProfileImageViewer> {
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 180),
                   curve: Curves.easeOut,
-                  transform: Matrix4.identity()..translate(0.0, _dragOffset),
+                  transform: Matrix4.identity()
+                    ..translateByDouble(0.0, _dragOffset, 0.0, 1.0),
                   child: Hero(
                     tag: _profileHeroTag,
                     child: InteractiveViewer(
@@ -530,7 +535,7 @@ class _ProfileImageViewerState extends State<_ProfileImageViewer> {
                 child: IconButton(
                   tooltip: 'Close image',
                   style: IconButton.styleFrom(
-                    backgroundColor: Colors.black.withOpacity(0.38),
+                    backgroundColor: Colors.black.withValues(alpha: 0.38),
                     foregroundColor: Colors.white,
                   ),
                   onPressed: _closeViewer,
@@ -549,7 +554,7 @@ class _ProfileImageViewerState extends State<_ProfileImageViewer> {
                         vertical: 8,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.28),
+                        color: Colors.black.withValues(alpha: 0.28),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: const Text(

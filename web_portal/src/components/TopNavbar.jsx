@@ -3,16 +3,15 @@ import { useAuth } from '../context/AuthContext';
 import { useLocation } from 'react-router-dom';
 import NotificationBell from './NotificationBell';
 import { supabase } from '../lib/supabase_client';
-import toast from 'react-hot-toast';
 
 const TopNavbar = () => {
   const { profile } = useAuth();
   const location = useLocation();
   const [employee, setEmployee] = useState(null);
+  const [status, setStatus] = useState('connected');
 
   useEffect(() => {
     let isActive = true;
-
     async function fetchEmployee() {
       if (!profile?.employee_id) return;
       const { data, error } = await supabase
@@ -25,33 +24,19 @@ const TopNavbar = () => {
       }
     }
     fetchEmployee();
-
-    return () => {
-      isActive = false;
-    };
+    return () => { isActive = false; };
   }, [profile?.employee_id]);
 
-  const [status, setStatus] = useState('connecting');
-
   useEffect(() => {
-    const channel = supabase.channel('realtime-check')
-      .on('system', { event: 'subscribe' }, () => {
-        setStatus('connected');
-      })
-      .on('system', { event: 'error' }, () => {
-        setStatus('disconnected');
-        toast.error("Realtime connection offline. Changes may not sync instantly.");
-      })
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') setStatus('connected');
-        if (status === 'CLOSED') {
-          setStatus('disconnected');
-          toast.error("Offline. Reconnecting...");
-        }
-      });
-
+    const updateStatus = () => {
+      setStatus(navigator.onLine ? 'connected' : 'disconnected');
+    };
+    updateStatus();
+    window.addEventListener('online', updateStatus);
+    window.addEventListener('offline', updateStatus);
     return () => {
-      supabase.removeChannel(channel);
+      window.removeEventListener('online', updateStatus);
+      window.removeEventListener('offline', updateStatus);
     };
   }, []);
 
@@ -78,8 +63,14 @@ const TopNavbar = () => {
           {getPageTitle(location.pathname)}
         </h1>
         <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-50 border border-slate-100">
-          <div className={`w-2 h-2 rounded-full ${status === 'connected' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'}`} />
-          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{status === 'connected' ? 'Live' : 'Offline'}</span>
+          <div className={`w-2 h-2 rounded-full ${
+            status === 'connected'
+              ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]'
+              : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'
+          }`} />
+          <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+            {status === 'connected' ? 'Live' : 'Offline'}
+          </span>
         </div>
       </div>
 
@@ -87,10 +78,8 @@ const TopNavbar = () => {
         <div className="text-right hidden sm:block">
           <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">{dateString}</p>
         </div>
-
         <div className="flex items-center space-x-6">
           <NotificationBell />
-
           <div className="flex items-center space-x-3 cursor-pointer group">
             <div className="flex flex-col items-end hidden sm:flex">
               <span className="text-xs font-bold text-gray-800 leading-none">

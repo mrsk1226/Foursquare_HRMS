@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../main.dart';
 import '../services/supabase_config.dart';
-import '../widgets/brand_lockup.dart';
 import 'login_screen.dart';
 
 class SplashScreen extends StatefulWidget {

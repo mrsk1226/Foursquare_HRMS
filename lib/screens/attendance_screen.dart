@@ -135,7 +135,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     final bool hasPermission = await PermissionService.checkAndRequestLocation();
     if (!hasPermission) return;
 
-    Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+    final position = await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+      ),
+    );
+    if (!mounted) return;
     
     // Check range
     if (_todayLog == null) {
@@ -171,6 +176,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             'lng': position.longitude,
             'status': 'pending'
           });
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Sunday attendance submitted for HR approval"), backgroundColor: Colors.green));
         } else {
           await SupabaseConfig.client.from('attendance_logs').insert({
@@ -181,15 +187,18 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
             'date': todayStr,
             'status': 'present'
           });
+          if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Punched in successfully"), backgroundColor: Colors.green));
         }
       } else {
         await SupabaseConfig.client.from('attendance_logs').update({'check_out': nowStr}).eq('id', _todayLog!['id']);
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Punched out successfully"), backgroundColor: Colors.green));
       }
 
       await _fetchAttendanceData();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Failed to save punch log"), backgroundColor: Colors.red));
     }
   }
@@ -200,7 +209,10 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
-      drawer: const AppDrawer(selectedIndex: 2),
+      drawer: AppDrawer(
+        selectedIndex: 1,
+        onItemSelected: widget.switchTab,
+      ),
       drawerEnableOpenDragGesture: true,
       drawerEdgeDragWidth: 28,
       appBar: AppBar(
@@ -234,7 +246,16 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
 
             Container(
               padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 10,
+                  ),
+                ],
+              ),
               child: Column(
                 children: [
                   Text(_todayLog?['check_in'] != null ? "Working Today" : "Not Punched In", style: const TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w500)),

@@ -6,65 +6,82 @@ import '../blocs/auth_bloc.dart';
 const String _drawerLogoAsset = 'assets/images/4 square White Colour.png';
 
 class AppDrawer extends StatelessWidget {
-  final int selectedIndex;
-
   const AppDrawer({
-    Key? key,
+    super.key,
     required this.selectedIndex,
-  }) : super(key: key);
+    this.onItemSelected,
+  });
 
-  static const List<_DrawerDestination> _destinations = [
+  final int selectedIndex;
+  final ValueChanged<int>? onItemSelected;
+
+  static const List<_DrawerDestination> _workspaceDestinations = [
     _DrawerDestination(
-      index: 0,
+      selectionIndex: 0,
+      tabIndex: 0,
       title: 'Dashboard',
       subtitle: 'Overview and quick actions',
       icon: Icons.dashboard_rounded,
       routeName: '/dashboard',
     ),
     _DrawerDestination(
-      index: 1,
-      title: 'Employees',
-      subtitle: 'Directory and employee records',
-      icon: Icons.groups_rounded,
-      routeName: '/employees',
-    ),
-    _DrawerDestination(
-      index: 2,
+      selectionIndex: 1,
+      tabIndex: 1,
       title: 'Attendance',
       subtitle: 'Punch and daily logs',
       icon: Icons.access_time_filled_rounded,
       routeName: '/attendance',
     ),
     _DrawerDestination(
-      index: 3,
-      title: 'Leave Requests',
+      selectionIndex: 2,
+      tabIndex: 2,
+      title: 'Leave',
       subtitle: 'Leave and permission records',
       icon: Icons.event_note_rounded,
       routeName: '/leave-requests',
     ),
     _DrawerDestination(
-      index: 4,
+      selectionIndex: 3,
+      tabIndex: 3,
+      title: 'Engage',
+      subtitle: 'Updates and celebrations',
+      icon: Icons.campaign_rounded,
+      routeName: '/announcements',
+    ),
+    _DrawerDestination(
+      selectionIndex: 4,
+      tabIndex: 4,
+      title: 'Profile',
+      subtitle: 'Personal and work details',
+      icon: Icons.person_rounded,
+      routeName: '/profile',
+    ),
+  ];
+
+  static const List<_DrawerDestination> _moduleDestinations = [
+    _DrawerDestination(
+      selectionIndex: 10,
+      title: 'Employees',
+      subtitle: 'Directory and employee records',
+      icon: Icons.groups_rounded,
+      routeName: '/employees',
+    ),
+    _DrawerDestination(
+      selectionIndex: 11,
       title: 'Payroll',
       subtitle: 'Salary cycles and statements',
       icon: Icons.account_balance_wallet_rounded,
       routeName: '/payroll',
     ),
     _DrawerDestination(
-      index: 5,
-      title: 'Announcements',
-      subtitle: 'Updates and celebrations',
-      icon: Icons.campaign_rounded,
-      routeName: '/announcements',
-    ),
-    _DrawerDestination(
-      index: 6,
+      selectionIndex: 12,
       title: 'Expenses',
       subtitle: 'Claims and reimbursements',
       icon: Icons.receipt_long_rounded,
       routeName: '/expenses',
     ),
     _DrawerDestination(
-      index: 7,
+      selectionIndex: 13,
       title: 'Performance',
       subtitle: 'Goals, reviews, and growth',
       icon: Icons.trending_up_rounded,
@@ -89,7 +106,7 @@ class AppDrawer extends StatelessWidget {
         return Theme(
           data: Theme.of(context).copyWith(
             splashFactory: InkRipple.splashFactory,
-            highlightColor: Colors.white.withOpacity(0.04),
+            highlightColor: Colors.white.withValues(alpha: 0.04),
           ),
           child: Drawer(
             width: MediaQuery.of(context).size.width * 0.82,
@@ -104,14 +121,14 @@ class AppDrawer extends StatelessWidget {
                 child: Material(
                   color: const Color(0xFF0F1A2E),
                   child: DecoratedBox(
-                    decoration: BoxDecoration(
+                    decoration: const BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         colors: [
-                          const Color(0xFF13213B),
-                          const Color(0xFF0F1A2E),
-                          const Color(0xFF0B1526),
+                          Color(0xFF13213B),
+                          Color(0xFF0F1A2E),
+                          Color(0xFF0B1526),
                         ],
                       ),
                     ),
@@ -123,7 +140,7 @@ class AppDrawer extends StatelessWidget {
                           decoration: BoxDecoration(
                             border: Border(
                               bottom: BorderSide(
-                                color: Colors.white.withOpacity(0.08),
+                                color: Colors.white.withValues(alpha: 0.08),
                               ),
                             ),
                           ),
@@ -137,24 +154,20 @@ class AppDrawer extends StatelessWidget {
                                       alignment: Alignment.centerLeft,
                                       child: LayoutBuilder(
                                         builder: (context, constraints) {
-                                          final logoWidth =
-                                              constraints.maxWidth.clamp(
-                                                    120.0,
-                                                    168.0,
-                                                  )
-                                                  as double;
+                                          final logoWidth = constraints.maxWidth
+                                              .clamp(120.0, 168.0);
                                           return Container(
                                             height: 64,
                                             padding: const EdgeInsets.all(12),
                                             decoration: BoxDecoration(
-                                              color: Colors.white.withOpacity(
-                                                0.08,
+                                              color: Colors.white.withValues(
+                                                alpha: 0.08,
                                               ),
                                               borderRadius:
                                                   BorderRadius.circular(22),
                                               border: Border.all(
-                                                color: Colors.white.withOpacity(
-                                                  0.10,
+                                                color: Colors.white.withValues(
+                                                  alpha: 0.10,
                                                 ),
                                               ),
                                             ),
@@ -197,7 +210,8 @@ class AppDrawer extends StatelessWidget {
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           name,
@@ -215,7 +229,9 @@ class AppDrawer extends StatelessWidget {
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
-                                            color: Colors.white.withOpacity(0.58),
+                                            color: Colors.white.withValues(
+                                              alpha: 0.58,
+                                            ),
                                             fontSize: 11,
                                           ),
                                         ),
@@ -231,27 +247,21 @@ class AppDrawer extends StatelessWidget {
                           child: ListView(
                             padding: const EdgeInsets.fromLTRB(14, 18, 14, 12),
                             children: [
-                              _DrawerSectionLabel(label: 'Navigation'),
+                              const _DrawerSectionLabel(label: 'Workspace'),
                               const SizedBox(height: 8),
-                              ..._destinations.map(
+                              ..._workspaceDestinations.map(
                                 (destination) => _buildDrawerItem(
                                   context: context,
-                                  icon: destination.icon,
-                                  title: destination.title,
-                                  subtitle: destination.subtitle,
-                                  isSelected: selectedIndex == destination.index,
-                                  onTap: () {
-                                    final navigator = Navigator.of(context);
-                                    navigator.pop();
-                                    if (selectedIndex == destination.index) {
-                                      return;
-                                    }
-                                    Future<void>.microtask(() {
-                                      navigator.pushNamed(
-                                        destination.routeName,
-                                      );
-                                    });
-                                  },
+                                  destination: destination,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              const _DrawerSectionLabel(label: 'Modules'),
+                              const SizedBox(height: 8),
+                              ..._moduleDestinations.map(
+                                (destination) => _buildDrawerItem(
+                                  context: context,
+                                  destination: destination,
                                 ),
                               ),
                             ],
@@ -263,7 +273,7 @@ class AppDrawer extends StatelessWidget {
                             color: Colors.transparent,
                             child: InkWell(
                               borderRadius: BorderRadius.circular(22),
-                              splashColor: Colors.red.withOpacity(0.16),
+                              splashColor: Colors.red.withValues(alpha: 0.16),
                               onTap: () {
                                 Navigator.pop(context);
                                 context
@@ -276,14 +286,14 @@ class AppDrawer extends StatelessWidget {
                                   vertical: 14,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: Colors.red.withOpacity(0.08),
+                                  color: Colors.red.withValues(alpha: 0.08),
                                   borderRadius: BorderRadius.circular(22),
                                   border: Border.all(
-                                    color: Colors.red.withOpacity(0.20),
+                                    color: Colors.red.withValues(alpha: 0.20),
                                   ),
                                 ),
-                                child: Row(
-                                  children: const [
+                                child: const Row(
+                                  children: [
                                     Icon(
                                       Icons.logout_rounded,
                                       color: Color(0xFFFF8B8B),
@@ -316,37 +326,35 @@ class AppDrawer extends StatelessWidget {
 
   Widget _buildDrawerItem({
     required BuildContext context,
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required bool isSelected,
-    required VoidCallback onTap,
+    required _DrawerDestination destination,
   }) {
+    final isSelected = selectedIndex == destination.selectionIndex;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(22),
-          splashColor: Colors.white.withOpacity(0.12),
-          highlightColor: Colors.white.withOpacity(0.04),
-          onTap: onTap,
+          splashColor: Colors.white.withValues(alpha: 0.12),
+          highlightColor: Colors.white.withValues(alpha: 0.04),
+          onTap: () => _handleDestinationTap(context, destination),
           child: Ink(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
             decoration: BoxDecoration(
               color: isSelected
-                  ? const Color(0xFF1E3A5F).withOpacity(0.82)
-                  : Colors.white.withOpacity(0.03),
+                  ? const Color(0xFF1E3A5F).withValues(alpha: 0.82)
+                  : Colors.white.withValues(alpha: 0.03),
               borderRadius: BorderRadius.circular(22),
               border: Border.all(
                 color: isSelected
-                    ? const Color(0xFF2E86AB).withOpacity(0.55)
-                    : Colors.white.withOpacity(0.06),
+                    ? const Color(0xFF2E86AB).withValues(alpha: 0.55)
+                    : Colors.white.withValues(alpha: 0.06),
               ),
               boxShadow: isSelected
                   ? [
                       BoxShadow(
-                        color: const Color(0xFF2E86AB).withOpacity(0.18),
+                        color: const Color(0xFF2E86AB).withValues(alpha: 0.18),
                         blurRadius: 18,
                         offset: const Offset(0, 10),
                       ),
@@ -362,16 +370,16 @@ class AppDrawer extends StatelessWidget {
                   width: 42,
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? const Color(0xFF2E86AB).withOpacity(0.22)
-                        : Colors.white.withOpacity(0.06),
+                        ? const Color(0xFF2E86AB).withValues(alpha: 0.22)
+                        : Colors.white.withValues(alpha: 0.06),
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Icon(
-                    icon,
+                    destination.icon,
                     size: 21,
                     color: isSelected
                         ? const Color(0xFF8DD3FF)
-                        : Colors.white.withOpacity(0.84),
+                        : Colors.white.withValues(alpha: 0.84),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -380,9 +388,9 @@ class AppDrawer extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        title,
+                        destination.title,
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.96),
+                          color: Colors.white.withValues(alpha: 0.96),
                           fontSize: 14,
                           fontWeight:
                               isSelected ? FontWeight.w700 : FontWeight.w600,
@@ -390,9 +398,9 @@ class AppDrawer extends StatelessWidget {
                       ),
                       const SizedBox(height: 3),
                       Text(
-                        subtitle,
+                        destination.subtitle,
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.50),
+                          color: Colors.white.withValues(alpha: 0.50),
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
                         ),
@@ -409,7 +417,7 @@ class AppDrawer extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: isSelected
                           ? const Color(0xFF8DD3FF)
-                          : Colors.white.withOpacity(0.26),
+                          : Colors.white.withValues(alpha: 0.26),
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -421,28 +429,51 @@ class AppDrawer extends StatelessWidget {
       ),
     );
   }
+
+  void _handleDestinationTap(
+    BuildContext context,
+    _DrawerDestination destination,
+  ) {
+    final navigator = Navigator.of(context);
+    navigator.pop();
+
+    if (selectedIndex == destination.selectionIndex) {
+      return;
+    }
+
+    Future<void>.microtask(() {
+      if (destination.tabIndex != null && onItemSelected != null) {
+        onItemSelected!(destination.tabIndex!);
+        return;
+      }
+
+      navigator.pushReplacementNamed(destination.routeName);
+    });
+  }
 }
 
 class _DrawerDestination {
-  final int index;
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final String routeName;
-
   const _DrawerDestination({
-    required this.index,
+    required this.selectionIndex,
     required this.title,
     required this.subtitle,
     required this.icon,
     required this.routeName,
+    this.tabIndex,
   });
+
+  final int selectionIndex;
+  final int? tabIndex;
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final String routeName;
 }
 
 class _DrawerSectionLabel extends StatelessWidget {
-  final String label;
-
   const _DrawerSectionLabel({required this.label});
+
+  final String label;
 
   @override
   Widget build(BuildContext context) {
@@ -451,7 +482,7 @@ class _DrawerSectionLabel extends StatelessWidget {
       child: Text(
         label,
         style: TextStyle(
-          color: Colors.white.withOpacity(0.42),
+          color: Colors.white.withValues(alpha: 0.42),
           fontSize: 11,
           fontWeight: FontWeight.w700,
           letterSpacing: 1.1,

@@ -40,7 +40,7 @@ class DashboardBrandLogo extends StatelessWidget {
           padding: padding,
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final cropAspect = _whiteLogoCropWidth / _whiteLogoCropHeight;
+              const cropAspect = _whiteLogoCropWidth / _whiteLogoCropHeight;
               final fittedHeight = [
                 constraints.maxHeight,
                 constraints.maxWidth / cropAspect,

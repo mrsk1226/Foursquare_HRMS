@@ -4,7 +4,7 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-val kotlinVersion = "2.2.20"
+val kotlinVersion = "2.1.0"
 val androidMapsUtilsVersion = "4.1.0"
 val playServicesMapsVersion = "20.0.0"
 

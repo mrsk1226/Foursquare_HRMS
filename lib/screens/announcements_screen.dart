@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/supabase_config.dart';
 import '../widgets/app_drawer.dart';
 
@@ -150,7 +149,10 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
-      drawer: const AppDrawer(selectedIndex: 5),
+      drawer: AppDrawer(
+        selectedIndex: 3,
+        onItemSelected: widget.switchTab,
+      ),
       drawerEnableOpenDragGesture: true,
       drawerEdgeDragWidth: 28,
       appBar: AppBar(
@@ -218,7 +220,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text("Birthday Celebration! 🎊",
+                const Text("Birthday Celebration! ðŸŽŠ",
                     style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 13,
@@ -264,7 +266,9 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
     Color priorityColor = Colors.blue;
     if (priority == 'urgent') {
       priorityColor = Colors.red;
-    } else if (priority == 'important') priorityColor = Colors.orange;
+    } else if (priority == 'important') {
+      priorityColor = Colors.orange;
+    }
 
     final itemReactions =
         _reactions.where((r) => r['announcement_id'] == ann['id']).toList();
@@ -293,7 +297,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
             child: Row(
               children: [
                 CircleAvatar(
-                    backgroundColor: priorityColor.withOpacity(0.1),
+                    backgroundColor: priorityColor.withValues(alpha: 0.1),
                     child:
                         Icon(Icons.campaign, color: priorityColor, size: 20)),
                 const SizedBox(width: 12),
@@ -346,11 +350,11 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
                 Row(
                   children: [
                     _reactionBtn(
-                        '👍', likes, () => _toggleReaction(ann['id'], 'like')),
+                        'ðŸ‘', likes, () => _toggleReaction(ann['id'], 'like')),
                     _reactionBtn(
-                        '❤️', hearts, () => _toggleReaction(ann['id'], 'love')),
+                        'â¤ï¸', hearts, () => _toggleReaction(ann['id'], 'love')),
                     _reactionBtn(
-                        '👏', claps, () => _toggleReaction(ann['id'], 'clap')),
+                        'ðŸ‘', claps, () => _toggleReaction(ann['id'], 'clap')),
                   ],
                 ),
                 TextButton.icon(
@@ -372,7 +376,7 @@ class _AnnouncementsScreenState extends State<AnnouncementsScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-          color: color.withOpacity(0.1),
+          color: color.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(4)),
       child: Text(label.toUpperCase(),
           style: TextStyle(

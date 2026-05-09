@@ -59,8 +59,10 @@ class _AnnouncementDetailsScreenState extends State<AnnouncementDetailsScreen> {
           'employee_name': state.profile?['employees']?['full_name'] ?? state.user.email,
           'reaction_type': type
         }, onConflict: 'announcement_id,employee_id');
+        if (!mounted) return;
         _fetchDetails();
       } catch (e) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
@@ -80,10 +82,12 @@ class _AnnouncementDetailsScreenState extends State<AnnouncementDetailsScreen> {
           'employee_name': state.profile?['employees']?['full_name'] ?? 'User',
           'content': text
         });
+        if (!mounted) return;
         _commentCtrl.clear();
         _fetchDetails();
         FocusScope.of(context).unfocus();
       } catch (e) {
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }

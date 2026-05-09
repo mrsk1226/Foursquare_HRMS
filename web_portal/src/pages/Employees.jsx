@@ -93,6 +93,13 @@ const Employees = () => {
   const [isUpdatingAccount, setIsUpdatingAccount] = useState(false);
   const fileInputRef = useRef(null);
 
+  const runQuery = async (query, timeoutMs = 15000) => {
+    const timed = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Request timeout')), timeoutMs)
+    );
+    return Promise.race([query, timed]);
+  };
+
 
 
   const openViewModal = async (emp) => {
@@ -104,7 +111,9 @@ const Employees = () => {
       setViewDocs(docs || []);
       
       const monthStart = format(startOfMonth(new Date()), 'yyyy-MM-dd');
-      const { data: att } = await supabase.from('attendance_logs').select('status, date').eq('employee_id', emp.employee_id);
+      const { data: att } = await runQuery(
+        supabase.from('attendance_logs').select('status, date').eq('employee_id', emp.employee_id)
+      );
       
       const currentMonthAtt = (att || []).filter(a => a.date >= monthStart);
       const present = currentMonthAtt.filter(a => a.status === 'present').length;
@@ -122,7 +131,9 @@ const Employees = () => {
       }
       setViewAttendance({ present, absent, chartData });
 
-      const { data: lv } = await supabase.from('leave_balances').select('*').eq('employee_id', emp.employee_id).single();
+      const { data: lv } = await runQuery(
+        supabase.from('leave_balances').select('*').eq('employee_id', emp.employee_id).single()
+      );
       setViewLeaves(lv || { annual: 12, sick: 7, casual: 7 });
     } catch (err) {
       console.error(err);

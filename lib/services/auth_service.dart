@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'supabase_config.dart';
 
@@ -14,15 +15,15 @@ class AuthService {
     String password,
   ) async {
     try {
-      print('DEBUG: Attempting login for email: $email');
+      debugPrint('AuthService: attempting login for $email');
       final response = await _client.auth.signInWithPassword(
         email: email,
         password: password,
       );
-      print('DEBUG: Login success for user: ${response.user?.id}');
+      debugPrint('AuthService: login success for ${response.user?.id}');
       return response;
     } catch (e) {
-      print('DEBUG: Login error: $e');
+      debugPrint('AuthService: login error: $e');
       if (e is supabase.AuthException) {
         throw e.message;
       }

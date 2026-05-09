@@ -1,0 +1,8 @@
+employees => id, employee_id, full_name, email, phone, department, designation, join_date, salary_basic, bank_account, bank_ifsc, pan_number, address, status, created_at, photo_url, emergency_contact, blood_group, work_location, manager, dob, date_of_birth, employment_type, bank_name, bank_account_type, gender, manager_employee_id
+attendance_logs => id, employee_id, check_in, check_out, lat, lng, date, status
+announcements => id, title, content, priority, target_role, created_by, expires_at, is_pinned, created_at, image_url
+announcement_likes => {"code":"PGRST205","details":null,"hint":"Perhaps you meant the table 'public.announcements'","messa
+announcement_comments => id, announcement_id, employee_id, employee_name, employee_photo, content, created_at
+leave_requests => id, employee_id, leave_type, start_date, end_date, reason, status, created_at, hr_status, md_status, hr_approved_at, md_approved_at, hr_remarks, md_remarks, applied_by_role, total_days, updated_at, manager_status, manager_employee_id, manager_approved_at, manager_remarks, current_approval_level, level_1_approver_id, level_1_approved_at, level_1_remarks, final_approver_id, final_approved_at
+expenses => EMPTY TABLE
+notifications => id, recipient_employee_id, sender_employee_id, type, title, message, reference_id, reference_type, is_read, created_at

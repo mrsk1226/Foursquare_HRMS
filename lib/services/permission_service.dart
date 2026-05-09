@@ -10,13 +10,15 @@ class PermissionService {
 
     // First launch only: request permissions
     if (!locationAsked) {
-      Map<Permission, PermissionStatus> statuses = await [
+      final statuses = await [
         Permission.location,
         Permission.locationWhenInUse,
       ].request();
-      
+
       await prefs.setBool(_prefKey, true);
-      return statuses[Permission.location]?.isGranted ?? false;
+      final locationStatus =
+          statuses[Permission.location] ?? statuses[Permission.locationWhenInUse];
+      return locationStatus?.isGranted ?? false;
     }
 
     // Never ask again after first time, just check status

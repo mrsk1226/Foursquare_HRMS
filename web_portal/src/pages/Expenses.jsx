@@ -1,11 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase_client';
 import { useAuth } from '../context/AuthContext';
-import { Download, Upload, Plus, FileText, CheckCircle, XCircle, ArrowLeft } from 'lucide-react';
+import { Download, Plus, FileText, CheckCircle, XCircle, ArrowLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Breadcrumb from '../components/Breadcrumb';
-
-
 import toast from 'react-hot-toast';
 
 export default function Expenses() {
@@ -15,8 +13,7 @@ export default function Expenses() {
   const [activeTab, setActiveTab] = useState('my-claims');
   const [claims, setClaims] = useState([]);
   const [allPendingClaims, setAllPendingClaims] = useState([]);
-  const [loading, setLoading] = useState(true);
-
+  const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
     expense_date: '',
@@ -28,21 +25,16 @@ export default function Expenses() {
 
   const categories = ['Travel', 'Food', 'Accommodation', 'Communication', 'Office Supplies', 'Medical', 'Other'];
 
-  useEffect(() => {
-    fetchClaims();
-    if (['admin', 'hr'].includes(profile?.role)) {
-      fetchAllPendingClaims();
-    }
-  }, [profile]);
-
-  const fetchClaims = async () => {
+  // ✅ FIX: profile ready ஆனபோதுதான் fetch பண்ணும்
+  const fetchClaims = useCallback(async () => {
+    if (!profile?.employee_id) return;
     try {
+      setLoading(true);
       const { data, error } = await supabase
         .from('expense_claims')
         .select('*')
         .eq('employee_id', profile.employee_id)
         .order('expense_date', { ascending: false });
-
       if (error) throw error;
       setClaims(data || []);
     } catch (error) {
@@ -50,25 +42,31 @@ export default function Expenses() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [profile?.employee_id]);
 
-  const fetchAllPendingClaims = async () => {
+  const fetchAllPendingClaims = useCallback(async () => {
+    if (!profile?.employee_id) return;
     try {
       const { data, error } = await supabase
         .from('expense_claims')
-        .select(`
-          *,
-          employees (full_name)
-        `)
+        .select('*, employees(full_name)')
         .eq('status', 'Pending')
         .order('created_at', { ascending: false });
-
       if (error) throw error;
       setAllPendingClaims(data || []);
     } catch (error) {
-      console.error(error);
+      console.error('Pending claims error:', error);
     }
-  };
+  }, [profile?.employee_id]);
+
+  // ✅ FIX: profile?.employee_id ready ஆனபோது மட்டும் run
+  useEffect(() => {
+    if (!profile?.employee_id) return;
+    fetchClaims();
+    if (['admin', 'hr', 'md'].includes(profile?.role)) {
+      fetchAllPendingClaims();
+    }
+  }, [profile?.employee_id, fetchClaims, fetchAllPendingClaims]);
 
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
@@ -78,6 +76,10 @@ export default function Expenses() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!profile?.employee_id) {
+      toast.error('Profile not loaded. Please refresh.');
+      return;
+    }
     try {
       setLoading(true);
       let receipt_url = null;
@@ -85,17 +87,13 @@ export default function Expenses() {
       if (formData.receiptFile) {
         const fileExt = formData.receiptFile.name.split('.').pop();
         const fileName = `${profile.employee_id}-${Date.now()}.${fileExt}`;
-
         const { error: uploadError } = await supabase.storage
           .from('expense-receipts')
           .upload(fileName, formData.receiptFile);
-
         if (uploadError) throw uploadError;
-
         const { data: publicUrlData } = supabase.storage
           .from('expense-receipts')
           .getPublicUrl(fileName);
-
         receipt_url = publicUrlData.publicUrl;
       }
 
@@ -110,10 +108,9 @@ export default function Expenses() {
           receipt_url,
           status: 'Pending'
         }]);
-
       if (error) throw error;
 
-      toast.success('Expense claim submitted');
+      toast.success('Expense claim submitted!');
       setShowForm(false);
       setFormData({ expense_date: '', category: 'Travel', amount: '', description: '', receiptFile: null });
       fetchClaims();
@@ -130,7 +127,6 @@ export default function Expenses() {
         .from('expense_claims')
         .update({ status: newStatus })
         .eq('id', id);
-
       if (error) throw error;
       toast.success(`Claim ${newStatus}`);
       fetchAllPendingClaims();
@@ -142,12 +138,10 @@ export default function Expenses() {
   const exportCSV = () => {
     const dataToExport = activeTab === 'my-claims' ? claims : allPendingClaims;
     if (!dataToExport.length) return;
-
     const headers = ['Date', 'Category', 'Amount', 'Description', 'Status'];
-    const csvContent = "data:text/csv;charset=utf-8," 
+    const csvContent = "data:text/csv;charset=utf-8,"
       + headers.join(",") + "\n"
       + dataToExport.map(c => `${c.expense_date},${c.category},${c.amount},"${c.description || ''}",${c.status}`).join("\n");
-
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -170,18 +164,32 @@ export default function Expenses() {
   };
 
   const statusColor = (status) => {
-    switch(status) {
+    switch (status) {
       case 'Approved': return 'bg-green-100 text-green-800';
       case 'Rejected': return 'bg-red-100 text-red-800';
       default: return 'bg-orange-100 text-orange-800';
     }
   };
 
+  // ✅ Profile load ஆகும் வரை loading show பண்ணு
+  if (!profile?.employee_id) {
+    return (
+      <div className="p-8 max-w-7xl mx-auto">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-slate-500 text-sm">Loading profile...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
       <Breadcrumb items={[{ label: 'Expenses', path: null }]} />
-      <button 
-        onClick={() => navigate('/dashboard')} 
+      <button
+        onClick={() => navigate('/dashboard')}
         className="group flex items-center text-xs font-black text-slate-400 hover:text-[#0f172a] transition-colors mb-6"
       >
         <ArrowLeft className="w-4 h-4 mr-2 group-hover:-translate-x-1 transition-transform" />
@@ -202,18 +210,14 @@ export default function Expenses() {
       <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-8 w-max">
         <button
           onClick={() => setActiveTab('my-claims')}
-          className={`px-6 py-2 rounded-md font-medium transition-colors ${
-            activeTab === 'my-claims' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-          }`}
+          className={`px-6 py-2 rounded-md font-medium transition-colors ${activeTab === 'my-claims' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
         >
           My Claims
         </button>
-        {['admin', 'hr'].includes(profile?.role) && (
+        {['admin', 'hr', 'md'].includes(profile?.role) && (
           <button
             onClick={() => setActiveTab('approve-claims')}
-            className={`px-6 py-2 rounded-md font-medium transition-colors ${
-              activeTab === 'approve-claims' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
-            }`}
+            className={`px-6 py-2 rounded-md font-medium transition-colors ${activeTab === 'approve-claims' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
           >
             Approve Claims
           </button>
@@ -255,11 +259,11 @@ export default function Expenses() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                      <input type="date" required value={formData.expense_date} onChange={e => setFormData({...formData, expense_date: e.target.value})} className="w-full px-4 py-2 border rounded-lg focus:ring-blue-500 focus:border-blue-500" />
+                      <input type="date" required value={formData.expense_date} onChange={e => setFormData({ ...formData, expense_date: e.target.value })} className="w-full px-4 py-2 border rounded-lg focus:ring-blue-500 focus:border-blue-500" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
-                      <select required value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})} className="w-full px-4 py-2 border rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                      <select required value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })} className="w-full px-4 py-2 border rounded-lg focus:ring-blue-500 focus:border-blue-500">
                         {categories.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
                     </div>
@@ -267,7 +271,7 @@ export default function Expenses() {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Amount (₹)</label>
                       <div className="relative">
                         <span className="absolute left-3 top-2 text-gray-500">₹</span>
-                        <input type="number" required min="1" step="0.01" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} className="w-full pl-8 pr-4 py-2 border rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="0.00" />
+                        <input type="number" required min="1" step="0.01" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} className="w-full pl-8 pr-4 py-2 border rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="0.00" />
                       </div>
                     </div>
                     <div>
@@ -277,7 +281,7 @@ export default function Expenses() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                    <textarea rows="2" required value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full px-4 py-2 border rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="Expense description..."></textarea>
+                    <textarea rows="2" required value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} className="w-full px-4 py-2 border rounded-lg focus:ring-blue-500 focus:border-blue-500" placeholder="Expense description..."></textarea>
                   </div>
                   <div className="flex justify-end space-x-3 mt-4">
                     <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
@@ -302,7 +306,9 @@ export default function Expenses() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-sm">
-                  {claims.length === 0 ? (
+                  {loading ? (
+                    <tr><td colSpan="6" className="p-8 text-center text-gray-500">Loading...</td></tr>
+                  ) : claims.length === 0 ? (
                     <tr><td colSpan="6" className="p-8 text-center text-gray-500">No claims found</td></tr>
                   ) : (
                     claims.map((claim) => (
@@ -386,4 +392,3 @@ export default function Expenses() {
     </div>
   );
 }
-

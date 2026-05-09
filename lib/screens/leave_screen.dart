@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/supabase_config.dart';
 import '../widgets/app_drawer.dart';
 
@@ -74,7 +73,7 @@ class _LeaveScreenState extends State<LeaveScreen>
           .eq('employee_id', _employeeId!)
           .order('created_at', ascending: false);
       setState(() {
-        _leaveRequests = data ?? [];
+        _leaveRequests = List<dynamic>.from(data);
         _isLeaveLoading = false;
       });
     } catch (e) {
@@ -92,7 +91,7 @@ class _LeaveScreenState extends State<LeaveScreen>
           .eq('employee_id', _employeeId!)
           .order('created_at', ascending: false);
       setState(() {
-        _permissions = data ?? [];
+        _permissions = List<dynamic>.from(data);
         _isPermLoading = false;
       });
     } catch (e) {
@@ -145,7 +144,10 @@ class _LeaveScreenState extends State<LeaveScreen>
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
-      drawer: const AppDrawer(selectedIndex: 3),
+      drawer: AppDrawer(
+        selectedIndex: 2,
+        onItemSelected: widget.switchTab,
+      ),
       drawerEnableOpenDragGesture: true,
       drawerEdgeDragWidth: 28,
       appBar: AppBar(
@@ -206,8 +208,9 @@ class _LeaveScreenState extends State<LeaveScreen>
                   padding: const EdgeInsets.all(16),
                   itemCount: _leaveRequests.length + 1,
                   itemBuilder: (context, index) {
-                    if (index == _leaveRequests.length)
+                    if (index == _leaveRequests.length) {
                       return const SizedBox(height: 80);
+                    }
                     return _buildLeaveCard(_leaveRequests[index]);
                   },
                 ),
@@ -229,8 +232,9 @@ class _LeaveScreenState extends State<LeaveScreen>
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           itemCount: _permissions.length + 1,
                           itemBuilder: (context, index) {
-                            if (index == _permissions.length)
+                            if (index == _permissions.length) {
                               return const SizedBox(height: 80);
+                            }
                             return _buildPermissionCard(_permissions[index]);
                           },
                         ),
@@ -263,7 +267,7 @@ class _LeaveScreenState extends State<LeaveScreen>
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 4))
         ],
@@ -280,7 +284,7 @@ class _LeaveScreenState extends State<LeaveScreen>
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                      color: badgeColor.withOpacity(0.1),
+                      color: badgeColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8)),
                   child: Text(type,
                       style: TextStyle(
@@ -292,7 +296,7 @@ class _LeaveScreenState extends State<LeaveScreen>
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.1),
+                      color: statusColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8)),
                   child: Text(status.toUpperCase(),
                       style: TextStyle(
@@ -351,7 +355,7 @@ class _LeaveScreenState extends State<LeaveScreen>
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 4))
         ],
@@ -402,7 +406,7 @@ class _LeaveScreenState extends State<LeaveScreen>
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               blurRadius: 10,
               offset: const Offset(0, 4))
         ],
@@ -422,7 +426,7 @@ class _LeaveScreenState extends State<LeaveScreen>
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                      color: statusColor.withOpacity(0.1),
+                      color: statusColor.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8)),
                   child: Text(status.toUpperCase(),
                       style: TextStyle(
@@ -532,19 +536,17 @@ class _LeaveFormSheetState extends State<_LeaveFormSheet> {
         'is_read': false,
       });
 
-      if (mounted) {
-        Navigator.pop(context);
-        widget.onSuccess();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Leave request submitted'),
-            backgroundColor: Colors.green));
-      }
+      if (!context.mounted) return;
+      Navigator.pop(context);
+      widget.onSuccess();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Leave request submitted'),
+          backgroundColor: Colors.green));
     } catch (e) {
-      if (mounted) {
-        setState(() => _isSubmitting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
-      }
+      if (!mounted || !context.mounted) return;
+      setState(() => _isSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
     }
   }
 
@@ -816,19 +818,17 @@ class _PermissionFormSheetState extends State<_PermissionFormSheet> {
         'is_read': false,
       });
 
-      if (mounted) {
-        Navigator.pop(context);
-        widget.onSuccess();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Permission request submitted'),
-            backgroundColor: Colors.green));
-      }
+      if (!context.mounted) return;
+      Navigator.pop(context);
+      widget.onSuccess();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Permission request submitted'),
+          backgroundColor: Colors.green));
     } catch (e) {
-      if (mounted) {
-        setState(() => _isSubmitting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
-      }
+      if (!mounted || !context.mounted) return;
+      setState(() => _isSubmitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
     }
   }
 

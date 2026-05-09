@@ -95,7 +95,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             .from('leave_requests')
             .select('id')
             .eq('employee_id', _employeeId)
-            .in_('status', ['pending', 'approved'])
+            .inFilter('status', ['pending', 'approved'])
             .gte('start_date', start)
             .lte('start_date', end),
         SupabaseConfig.client
@@ -290,6 +290,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       BuildContext context, Map<String, dynamic> item) async {
     Navigator.of(context).pop();
     await _markRead(item['id']);
+    if (!mounted) return;
     final signal =
         '${item['type'] ?? ''} ${item['reference_type'] ?? ''}'.toLowerCase();
     if (signal.contains('announcement')) {
@@ -328,7 +329,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FB),
-      drawer: const AppDrawer(selectedIndex: 0),
+      drawer: AppDrawer(
+        selectedIndex: 0,
+        onItemSelected: widget.switchTab,
+      ),
       drawerEnableOpenDragGesture: true,
       drawerEdgeDragWidth: 28,
       appBar: AppBar(
@@ -348,8 +352,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 width: logoWidth,
                 height: 40,
                 padding: const EdgeInsets.all(8),
-                backgroundColor: Colors.white.withOpacity(0.08),
-                borderColor: Colors.white.withOpacity(0.10),
+                backgroundColor: Colors.white.withValues(alpha: 0.08),
+                borderColor: Colors.white.withValues(alpha: 0.10),
                 borderRadius: 16,
               ),
             );
@@ -515,7 +519,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.12),
+                  color: Colors.white.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: const Text(
@@ -540,7 +544,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Text(
                 'Track attendance, leave balances, and people updates from one premium workspace.',
                 style: TextStyle(
-                  color: Colors.white.withOpacity(0.78),
+                  color: Colors.white.withValues(alpha: 0.78),
                   height: 1.4,
                   fontSize: 13,
                 ),
@@ -677,7 +681,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: accent.withOpacity(0.12),
+                  color: accent.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Icon(icon, size: 18, color: accent),
@@ -953,7 +957,7 @@ class _CelebrationCard extends StatelessWidget {
               children: [
                 CircleAvatar(
                   radius: 24,
-                  backgroundColor: Colors.white.withOpacity(0.18),
+                  backgroundColor: Colors.white.withValues(alpha: 0.18),
                   backgroundImage: item.photoUrl != null &&
                           item.photoUrl!.isNotEmpty
                       ? NetworkImage(item.photoUrl!)
@@ -973,7 +977,7 @@ class _CelebrationCard extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.18),
+                    color: Colors.white.withValues(alpha: 0.18),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
@@ -1004,7 +1008,7 @@ class _CelebrationCard extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: Colors.white.withOpacity(0.86),
+                color: Colors.white.withValues(alpha: 0.86),
                 fontSize: 12,
                 height: 1.35,
               ),
@@ -1138,7 +1142,7 @@ class _NotificationSheet extends StatelessWidget {
                                       width: 42,
                                       decoration: BoxDecoration(
                                         color: const Color(0xFF1E3A5F)
-                                            .withOpacity(0.10),
+                                            .withValues(alpha: 0.10),
                                         borderRadius: BorderRadius.circular(14),
                                       ),
                                       child: Icon(

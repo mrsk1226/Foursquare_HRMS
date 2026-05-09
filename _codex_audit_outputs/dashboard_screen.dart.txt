@@ -1,0 +1,914 @@
+﻿import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shimmer/shimmer.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../services/supabase_config.dart';
+import '../widgets/app_drawer.dart';
+import 'attendance_screen.dart';
+import 'leave_screen.dart';
+import 'payslip_screen.dart';
+import 'profile_screen.dart';
+import 'announcements_screen.dart';
+
+class DashboardScreen extends StatefulWidget {
+  final Function(int)? switchTab;
+  const DashboardScreen({super.key, this.switchTab});
+  @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  String _displayName = '';
+  String _employeeId = '';
+  String _designation = '';
+  String _department = '';
+  bool _isLoading = true;
+  List<dynamic> _recentAnnouncements = [];
+  List<dynamic> _celebrations = [];
+  Map<String, dynamic> _leaveBalance = {};
+  Map<String, dynamic>? _todayAttendance;
+  DateTime _now = DateTime.now();
+  Timer? _clockTimer;
+  Timer? _weatherTimer;
+  bool _weatherLoaded = false;
+  String _weatherTemp = '';
+  String _weatherCondition = '';
+  String _weatherIcon = '';
+
+  final List<Map<String, dynamic>> _allActions = [
+    {
+      'key': 'Attendance',
+      'icon': Icons.access_time_rounded,
+      'desc': 'Punch In / Out',
+      'color': Color(0xFF1565C0),
+    },
+    {
+      'key': 'Leave',
+      'icon': Icons.calendar_month_rounded,
+      'desc': 'Apply for leave',
+      'color': Color(0xFF2E7D32),
+    },
+    {
+      'key': 'Payslip',
+      'icon': Icons.receipt_long_rounded,
+      'desc': 'Salary statements',
+      'color': Color(0xFF6A1B9A),
+    },
+    {
+      'key': 'Profile',
+      'icon': Icons.person_rounded,
+      'desc': 'My profile',
+      'color': Color(0xFF00838F),
+    },
+    {
+      'key': 'Engage',
+      'icon': Icons.campaign_rounded,
+      'desc': 'Announcements',
+      'color': Color(0xFFE65100),
+    },
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+    _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _now = DateTime.now());
+    });
+    _weatherTimer = Timer.periodic(
+      const Duration(minutes: 30),
+      (_) => _loadWeather(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    _weatherTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _init() async {
+    await _fetchDashboardData();
+    await _loadWeather();
+  }
+
+  Future<void> _loadWeather() async {
+    try {
+      const lat = 11.3410;
+      const lon = 77.7172;
+      final res = await http
+          .get(
+            Uri.parse(
+              'https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon'
+              '&current_weather=true&hourly=relativehumidity_2m,apparent_temperature'
+              '&timezone=Asia%2FKolkata&forecast_days=1',
+            ),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final cw = data['current_weather'];
+        final code = cw['weathercode'] as int;
+        final temp = cw['temperature'];
+
+        String icon, condition;
+        if (code == 0) {
+          icon = '☀️';
+          condition = 'Clear Sky';
+        } else if (code <= 3) {
+          icon = '⛅';
+          condition = 'Partly Cloudy';
+        } else if (code <= 48) {
+          icon = '🌫️';
+          condition = 'Foggy';
+        } else if (code <= 67) {
+          icon = '🌧️';
+          condition = 'Rainy';
+        } else if (code <= 82) {
+          icon = '🌦️';
+          condition = 'Showers';
+        } else {
+          icon = '⛈️';
+          condition = 'Thunderstorm';
+        }
+
+        if (mounted) {
+          setState(() {
+            _weatherIcon = icon;
+            _weatherCondition = condition;
+            _weatherTemp = '${temp.toStringAsFixed(0)}°C';
+            _weatherLoaded = true;
+          });
+        }
+      }
+    } catch (_) {
+      if (mounted) setState(() => _weatherLoaded = false);
+    }
+  }
+
+  Future<void> _fetchDashboardData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final empId = prefs.getString('employee_id') ?? '';
+      if (empId.isEmpty) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+      _employeeId = empId;
+
+      final empData = await SupabaseConfig.client
+          .from('employees')
+          .select('full_name, designation, department, dob')
+          .eq('employee_id', empId)
+          .maybeSingle();
+
+      if (empData != null) {
+        _displayName = (empData['full_name'] ?? '').toString().split(' ').first;
+        _designation = empData['designation']?.toString() ?? '';
+        _department = empData['department']?.toString() ?? '';
+      }
+
+      final annRes = await SupabaseConfig.client
+          .from('announcements')
+          .select('id, title, content, created_at, priority')
+          .order('created_at', ascending: false)
+          .limit(3);
+
+      final today = DateTime.now().toIso8601String().split('T')[0];
+      final attRes = await SupabaseConfig.client
+          .from('attendance_logs')
+          .select('check_in, check_out, status')
+          .eq('employee_id', empId)
+          .eq('date', today)
+          .maybeSingle();
+
+      Map<String, dynamic> leaveBalance = {
+        'Casual Leave': {'used': 0, 'total': 12},
+        'Sick Leave': {'used': 0, 'total': 12},
+        'Earned Leave': {'used': 0, 'total': 24},
+      };
+      try {
+        final leaveRes = await SupabaseConfig.client
+            .from('leave_requests')
+            .select('leave_type, start_date, end_date')
+            .eq('employee_id', empId)
+            .eq('status', 'approved');
+        for (final l in leaveRes as List) {
+          final type = l['leave_type']?.toString() ?? '';
+          final s = DateTime.tryParse(l['start_date'] ?? '');
+          final e = DateTime.tryParse(l['end_date'] ?? '');
+          if (s != null && e != null && leaveBalance.containsKey(type)) {
+            leaveBalance[type]['used'] =
+                (leaveBalance[type]['used'] as int) +
+                e.difference(s).inDays +
+                1;
+          }
+        }
+      } catch (_) {}
+
+      final allEmp = await SupabaseConfig.client
+          .from('employees')
+          .select('full_name, dob')
+          .not('dob', 'is', null);
+      final births = <Map<String, dynamic>>[];
+      for (final e in allEmp as List) {
+        try {
+          final dob = DateTime.parse(e['dob'].toString());
+          final now = DateTime.now();
+          if (dob.month == now.month &&
+              dob.day >= now.day &&
+              dob.day <= now.day + 7) {
+            births.add({
+              'title': e['full_name'],
+              'type': 'Birthday',
+              'day': dob.day == now.day ? 'Today' : 'Upcoming',
+            });
+          }
+        } catch (_) {}
+      }
+
+      if (mounted) {
+        setState(() {
+          _recentAnnouncements = annRes as List;
+          _celebrations = births;
+          _leaveBalance = leaveBalance;
+          _todayAttendance = attRes;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Dashboard error: $e');
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  String _getGreeting() {
+    final h = DateTime.now().hour;
+    if (h < 12) return 'Good Morning,';
+    if (h < 17) return 'Good Afternoon,';
+    return 'Good Evening,';
+  }
+
+  void _navigateTo(String key) {
+    Widget screen;
+    switch (key) {
+      case 'Attendance':
+        screen = AttendanceScreen(switchTab: widget.switchTab);
+        break;
+      case 'Leave':
+        screen = LeaveScreen(switchTab: widget.switchTab);
+        break;
+      case 'Payslip':
+        screen = const PayslipScreen();
+        break;
+      case 'Profile':
+        screen = ProfileScreen(switchTab: widget.switchTab);
+        break;
+      case 'Engage':
+        screen = AnnouncementsScreen(switchTab: widget.switchTab);
+        break;
+      default:
+        screen = AttendanceScreen(switchTab: widget.switchTab);
+    }
+    Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF8FAFC),
+        body: Center(
+          child: CircularProgressIndicator(color: Color(0xFF1565C0)),
+        ),
+      );
+    }
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      drawer: AppDrawer(
+        selectedIndex: 0,
+        switchTab: (i) => widget.switchTab?.call(i),
+      ),
+      body: RefreshIndicator(
+        onRefresh: _fetchDashboardData,
+        child: CustomScrollView(
+          physics: const BouncingScrollPhysics(),
+          slivers: [
+            _buildAppBar(),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildGreetingCard(),
+                    const SizedBox(height: 20),
+                    _buildTodayStatusCard(),
+                    const SizedBox(height: 24),
+                    _sectionTitle('Daily Actions'),
+                    const SizedBox(height: 12),
+                    _buildActionsGrid(),
+                    const SizedBox(height: 24),
+                    _sectionTitle('Leave Balance'),
+                    const SizedBox(height: 12),
+                    _buildLeaveBalance(),
+                    const SizedBox(height: 24),
+                    _sectionTitle('Latest News'),
+                    const SizedBox(height: 12),
+                    _buildNewsFeed(),
+                    const SizedBox(height: 40),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAppBar() {
+    return SliverAppBar(
+      floating: true,
+      backgroundColor: const Color(0xFF0F172A),
+      iconTheme: const IconThemeData(color: Colors.white),
+      elevation: 0,
+      title: Image.asset('assets/images/4 square White Colour.png', height: 32),
+      centerTitle: false,
+      actions: [
+        IconButton(
+          icon: const Icon(
+            Icons.notifications_none_rounded,
+            color: Colors.white,
+          ),
+          onPressed: () {},
+        ),
+        const SizedBox(width: 8),
+      ],
+    );
+  }
+
+  Widget _buildGreetingCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(28),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF0F172A), Color(0xFF1E3A5F)],
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withValues(alpha: 0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF34D399),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'LIVE • DASHBOARD',
+                    style: GoogleFonts.inter(
+                      color: Colors.white.withValues(alpha: 0.5),
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _getGreeting(),
+                style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Shimmer.fromColors(
+                baseColor: Colors.white,
+                highlightColor: const Color(0xFF60A5FA),
+                child: Text(
+                  _displayName.isEmpty ? 'Employee' : _displayName,
+                  style: GoogleFonts.inter(
+                    color: Colors.white,
+                    fontSize: 30,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: -1,
+                  ),
+                ),
+              ),
+              if (_designation.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  '$_designation • $_department',
+                  style: GoogleFonts.inter(
+                    color: Colors.white.withValues(alpha: 0.4),
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Text(
+                'Your HR ecosystem is fully operational.',
+                style: GoogleFonts.inter(
+                  color: Colors.white.withValues(alpha: 0.4),
+                  fontSize: 11,
+                ),
+              ),
+              if (_celebrations.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _buildCelebrationsBox(),
+              ],
+            ],
+          ),
+          Positioned(
+            top: 0,
+            right: 0,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  DateFormat('hh:mm a').format(_now),
+                  style: GoogleFonts.inter(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  DateFormat('dd MMM').format(_now),
+                  style: GoogleFonts.inter(
+                    color: Colors.white.withValues(alpha: 0.4),
+                    fontSize: 10,
+                    letterSpacing: 1.5,
+                  ),
+                ),
+                if (_weatherLoaded) ...[
+                  const SizedBox(height: 10),
+                  _buildWeatherMini(),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTodayStatusCard() {
+    final hasIn = _todayAttendance?['check_in'] != null;
+    final hasOut = _todayAttendance?['check_out'] != null;
+    String status;
+    Color statusColor;
+    IconData statusIcon;
+
+    if (hasIn && hasOut) {
+      status = 'Completed';
+      statusColor = Colors.green;
+      statusIcon = Icons.check_circle_rounded;
+    } else if (hasIn) {
+      status = 'Punched In';
+      statusColor = Colors.blue;
+      statusIcon = Icons.login_rounded;
+    } else {
+      status = 'Not Punched In';
+      statusColor = Colors.orange;
+      statusIcon = Icons.access_time_rounded;
+    }
+
+    String inTime = '--:--';
+    String outTime = '--:--';
+    if (hasIn) {
+      inTime = DateFormat(
+        'hh:mm a',
+      ).format(DateTime.parse(_todayAttendance!['check_in']).toLocal());
+    }
+    if (hasOut) {
+      outTime = DateFormat(
+        'hh:mm a',
+      ).format(DateTime.parse(_todayAttendance!['check_out']).toLocal());
+    }
+
+    return GestureDetector(
+      onTap: () => _navigateTo('Attendance'),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: statusColor.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(statusIcon, color: statusColor, size: 24),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    "Today's Attendance",
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    status,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                _timeChip('IN', inTime, Colors.green),
+                const SizedBox(height: 4),
+                _timeChip('OUT', outTime, Colors.red),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _timeChip(String label, String time, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 9,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          time,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionsGrid() {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 12,
+        childAspectRatio: 1.0,
+      ),
+      itemCount: _allActions.length,
+      itemBuilder: (context, i) {
+        final action = _allActions[i];
+        final color = action['color'] as Color;
+        return GestureDetector(
+          onTap: () => _navigateTo(action['key']),
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    action['icon'] as IconData,
+                    color: color,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  action['key'],
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                    color: Color(0xFF1B2E4B),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  action['desc'],
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 9, color: Colors.grey.shade500),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLeaveBalance() {
+    final colors = [Colors.blue, Colors.teal, Colors.orange];
+    int idx = 0;
+    return Column(
+      children: _leaveBalance.entries.map((e) {
+        final color = colors[idx % colors.length];
+        idx++;
+        final used = e.value['used'] as int;
+        final total = e.value['total'] as int;
+        final remaining = total - used;
+        final progress = total > 0 ? (used / total).clamp(0.0, 1.0) : 0.0;
+        return GestureDetector(
+          onTap: () => _navigateTo('Leave'),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 8,
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      e.key,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                        color: Color(0xFF1B2E4B),
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        Text(
+                          '$remaining remaining',
+                          style: TextStyle(
+                            color: color,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          ' / $total',
+                          style: TextStyle(
+                            color: Colors.grey.shade400,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    backgroundColor: color.withValues(alpha: 0.1),
+                    valueColor: AlwaysStoppedAnimation<Color>(color),
+                    minHeight: 6,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildNewsFeed() {
+    if (_recentAnnouncements.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Center(
+          child: Column(
+            children: [
+              Icon(Icons.campaign_outlined, size: 40, color: Colors.grey),
+              SizedBox(height: 8),
+              Text(
+                'No announcements yet',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return Column(
+      children: _recentAnnouncements.map((ann) {
+        final priority = ann['priority']?.toString() ?? 'normal';
+        Color pColor = Colors.blue;
+        if (priority == 'urgent') pColor = Colors.red;
+        if (priority == 'important') pColor = Colors.orange;
+        return GestureDetector(
+          onTap: () => _navigateTo('Engage'),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.grey.shade100),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.03),
+                  blurRadius: 6,
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: pColor.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(Icons.campaign_rounded, color: pColor, size: 20),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        ann['title'] ?? '',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: Color(0xFF1B2E4B),
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        ann['content'] ?? '',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: Colors.grey.shade300,
+                  size: 18,
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _sectionTitle(String title) {
+    return Text(
+      title,
+      style: GoogleFonts.inter(
+        color: const Color(0xFF0F172A),
+        fontSize: 18,
+        fontWeight: FontWeight.w900,
+      ),
+    );
+  }
+
+  Widget _buildWeatherMini() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_weatherIcon, style: const TextStyle(fontSize: 14)),
+              const SizedBox(width: 4),
+              Text(
+                _weatherTemp,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          Text(
+            _weatherCondition,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.5),
+              fontSize: 9,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCelebrationsBox() {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.cake_rounded, color: Colors.amber, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              "${_celebrations[0]['title']}'s ${_celebrations[0]['type']} - ${_celebrations[0]['day']}",
+              style: const TextStyle(color: Colors.white, fontSize: 11),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
